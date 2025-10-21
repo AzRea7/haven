@@ -3,7 +3,6 @@ from urllib.parse import urlencode
 import requests
 from dotenv import load_dotenv, find_dotenv
 
-# Load .env (HAVEN/.env) and read key
 load_dotenv(find_dotenv())
 API_KEY = os.getenv("HASDATA_API_KEY")
 if not API_KEY:
@@ -47,7 +46,7 @@ def fetch_listings(keyword: str,
         time.sleep(delay_sec)
 
 if __name__ == "__main__":
-    # Example metro filter (adjust freely)
+    # Example metro filter
     fetch_listings(
         keyword="Detroit, MI",
         typ="forSale",

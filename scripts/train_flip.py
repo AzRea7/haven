@@ -7,7 +7,7 @@ from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import average_precision_score, brier_score_loss
 
 INP = "data/curated/properties.parquet"
-LABEL = "flip_success"  # 1 if NetProfit/TotalCost >= 0.12 else 0
+LABEL = "flip_success"
 
 df = pd.read_parquet(INP)
 if LABEL not in df.columns:
@@ -33,4 +33,4 @@ print(f"PR-AUC: {np.mean(aps):.3f} | Brier: {np.mean(briers):.3f}")
 os.makedirs("models", exist_ok=True)
 clf.fit(X, y)
 joblib.dump(clf, "models/flip_logit_calibrated.joblib")
-print(" saved models/flip_logit_calibrated.joblib")
+print("saved models/flip_logit_calibrated.joblib")

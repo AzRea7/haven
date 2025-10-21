@@ -1,4 +1,3 @@
-# scripts/score_candidates.py
 import joblib, pandas as pd, numpy as np
 
 FIN = {
@@ -42,4 +41,4 @@ out = pd.DataFrame({
 }).sort_values("flip_prob", ascending=False)
 
 out.to_csv("out/scored.csv", index=False)
-print("✅ wrote out/scored.csv")
+print("wrote out/scored.csv")

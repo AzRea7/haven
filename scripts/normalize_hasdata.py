@@ -1,67 +1,147 @@
-import glob, json, pandas as pd, numpy as np, os
+import glob, json, os, pandas as pd, numpy as np
 
-RAW_GLOB = "data/raw/hasdata/listings_*.json"
-OUT_CSV = "data/raw/listings.csv"
+RAW_GLOB = os.path.join("data", "raw", "hasdata", "listings_*.json")
+OUT_CSV = os.path.join("data", "raw", "listings.csv")
 
 def load_rows(path):
     with open(path, "r", encoding="utf-8") as f:
         payload = json.load(f)
-    # HasData commonly returns {"results": [...]} or {"data": [...]}
+    # HasData patterns: {"results": [...]}, {"data": [...]}, or direct list
     rows = payload.get("results") or payload.get("data") or payload
-    if isinstance(rows, dict):  # edge case: single object
+    if isinstance(rows, dict):
+        rows = [rows]
+    if not isinstance(rows, list):
         rows = [rows]
     return rows
 
-frames = []
-for p in glob.glob(RAW_GLOB):
-    rows = load_rows(p)
-    if not rows: 
-        continue
-    frames.append(pd.json_normalize(rows))
+def safe_normalize(rows):
+    """Flatten one page and keep only scalar columns (drop lists/dicts)."""
+    if not rows:
+        return pd.DataFrame()
+    df = pd.json_normalize(rows, max_level=2)
 
-if not frames:
+    # Keep only scalar dtypes (bool, int, float, str, datetime) to avoid unhashables
+    keep_cols = []
+    for c in df.columns:
+        sample = df[c].dropna().head(5).tolist()
+        if any(isinstance(x, (list, dict)) for x in sample):
+            continue
+        keep_cols.append(c)
+    return df[keep_cols].copy()
+
+frames = []
+files = sorted(glob.glob(RAW_GLOB))
+if not files:
     raise SystemExit("No listing JSON found. Run fetch_hasdata_zillow.py first.")
 
-df = pd.concat(frames, ignore_index=True).drop_duplicates()
+for p in files:
+    rows = load_rows(p)
+    flat = safe_normalize(rows)
+    if not flat.empty:
+        frames.append(flat)
 
-# Map provider fields -> Haven columns (adjust after inspecting a sample file)
-colmap = {
-    "zpid": "id",
-    "hdpData.homeInfo.zpid": "id",
-    "address": "address",
-    "unformattedAddress": "address",
-    "variableData.text": "headline",
-    "price": "list_price",
-    "hdpData.homeInfo.price": "list_price",
-    "livingArea": "sqft",
-    "hdpData.homeInfo.livingArea": "sqft",
-    "bedrooms": "beds",
-    "bathrooms": "baths",
-    "postalCode": "zip",
-    "hdpData.homeInfo.homeStatus": "status",
-    "hdpData.homeInfo.daysOnZillow": "days_on_zillow",
-    "detailUrl": "zillow_url",
-    "latitude": "lat",
-    "longitude": "lon",
-    "hdpData.homeInfo.yearBuilt": "year_built",
+if not frames:
+    raise SystemExit("Parsed 0 rows from JSON; inspect a raw file to adjust field paths.")
+
+df = pd.concat(frames, ignore_index=True)
+
+# We'll fill the first available source column for each target.
+candidates = {
+    "id": [
+        "zpid",
+        "hdpData.homeInfo.zpid",
+        "restimateInfo.zpid"
+    ],
+    "address": [
+        "address",
+        "unformattedAddress",
+        "hdpData.homeInfo.streetAddress"
+    ],
+    "list_price": [
+        "price",
+        "hdpData.homeInfo.price",
+        "unformattedPrice"
+    ],
+    "sqft": [
+        "livingArea",
+        "hdpData.homeInfo.livingArea"
+    ],
+    "beds": [
+        "bedrooms",
+        "hdpData.homeInfo.bedrooms"
+    ],
+    "baths": [
+        "bathrooms",
+        "hdpData.homeInfo.bathrooms"
+    ],
+    "zip": [
+        "postalCode",
+        "hdpData.homeInfo.zipcode"
+    ],
+    "status": [
+        "homeStatus",
+        "hdpData.homeInfo.homeStatus"
+    ],
+    "days_on_zillow": [
+        "daysOnZillow",
+        "hdpData.homeInfo.daysOnZillow"
+    ],
+    "zillow_url": [
+        "detailUrl",
+        "hdpData.homeInfo.detailUrl"
+    ],
+    "lat": [
+        "latitude",
+        "hdpData.homeInfo.latitude"
+    ],
+    "lon": [
+        "longitude",
+        "hdpData.homeInfo.longitude"
+    ],
+    "year_built": [
+        "yearBuilt",
+        "hdpData.homeInfo.yearBuilt"
+    ],
 }
-for src, dst in colmap.items():
-    if src in df.columns and dst not in df.columns:
-        df[dst] = df[src]
 
-# keep only columns we need now; keep provider cols separately if you want
-keep = ["id","address","list_price","sqft","beds","baths","zip","status",
+out = pd.DataFrame(index=df.index)
+for target, sources in candidates.items():
+    for src in sources:
+        if src in df.columns:
+            out[target] = df[src]
+            break
+    if target not in out.columns:
+        out[target] = np.nan 
+
+# ---- Basic cleanup & typing ----
+to_num = ["list_price", "sqft", "beds", "baths", "lat", "lon", "year_built", "days_on_zillow"]
+for c in to_num:
+    out[c] = pd.to_numeric(out[c], errors="coerce")
+
+# ZIP as 5-digit string when possible
+if "zip" in out.columns:
+    out["zip"] = out["zip"].astype(str).str.extract(r"(\d{5})")
+
+# ---- Deduplicate on stable keys ----
+if out["id"].notna().any():
+    out = out.drop_duplicates(subset=["id"])
+elif out["zillow_url"].notna().any():
+    out = out.drop_duplicates(subset=["zillow_url"])
+else:
+    subset = [c for c in ["address", "list_price", "sqft"] if c in out.columns]
+    out = out.drop_duplicates(subset=subset) if subset else out.drop_duplicates()
+
+# Keep a sensible column order
+cols = ["id","address","list_price","sqft","beds","baths","zip","status",
         "days_on_zillow","zillow_url","lat","lon","year_built"]
-present = [c for c in keep if c in df.columns]
-df = df[present].copy()
-
-# basic cleanup
-df["list_price"] = pd.to_numeric(df.get("list_price"), errors="coerce")
-df["sqft"] = pd.to_numeric(df.get("sqft"), errors="coerce")
-df["beds"] = pd.to_numeric(df.get("beds"), errors="coerce")
-df["baths"] = pd.to_numeric(df.get("baths"), errors="coerce")
-df["zip"] = df.get("zip").astype(str).str.extract(r"(\d{5})")
+cols = [c for c in cols if c in out.columns]
+out = out[cols]
 
 os.makedirs(os.path.dirname(OUT_CSV), exist_ok=True)
-df.to_csv(OUT_CSV, index=False)
-print(f"✅ wrote {OUT_CSV} with shape {df.shape}")
+out.to_csv(OUT_CSV, index=False)
+print(f"wrote {OUT_CSV} with shape {out.shape}")
+
+# Helpful debug: show a few columns we didn't map yet
+unmapped = sorted(set(df.columns) - set(sum(candidates.values(), [])))
+print(f"Unmapped scalar columns available ({len(unmapped)}):")
+print(", ".join(unmapped[:40]), "..." if len(unmapped) > 40 else "")

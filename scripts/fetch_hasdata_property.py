@@ -1,4 +1,3 @@
-# scripts/fetch_hasdata_property.py
 import os, json, re, requests
 from dotenv import load_dotenv, find_dotenv
 
@@ -29,5 +28,4 @@ def fetch_property_by_url(zillow_url: str):
     return data
 
 if __name__ == "__main__":
-    # Paste a Zillow property URL to test
     fetch_property_by_url("https://www.zillow.com/homedetails/301-E-79th-St-APT-23S-New-York-NY-10075/31543731_zpid/")
