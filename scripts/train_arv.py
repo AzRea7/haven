@@ -1,15 +1,13 @@
-# scripts/train_arv.py
 import os, joblib, pandas as pd
 from lightgbm import LGBMRegressor
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import mean_absolute_percentage_error
 
 INP = "data/curated/properties.parquet"
-TARGET_COL = "sale_price_after_rehab"   # put real historical labels when you have them
-TIME_COL = "listed_date_quarter_index"  # create this in your data prep for time-aware splits
+TARGET_COL = "sale_price_after_rehab"
+TIME_COL = "listed_date_quarter_index"  
 
 df = pd.read_parquet(INP)
-# ---- minimal demo: if no labels yet, skip training gracefully
 if TARGET_COL not in df.columns:
     raise SystemExit("Add a historical label column 'sale_price_after_rehab' to train ARV.")
 
@@ -17,7 +15,6 @@ y = df[TARGET_COL].astype(float)
 feature_cols = [c for c in df.columns if c not in [TARGET_COL, "id", "address"]]
 X = df[feature_cols]
 
-# time-aware CV (if TIME_COL not present, fallback to naive split)
 if TIME_COL in df.columns:
     groups = df[TIME_COL].values
     tscv = TimeSeriesSplit(n_splits=5)
@@ -41,4 +38,4 @@ os.makedirs("models", exist_ok=True)
 m_p10 = train_quantile(0.10); joblib.dump(m_p10, "models/arv_q10.joblib")
 m_p50 = train_quantile(0.50); joblib.dump(m_p50, "models/arv_q50.joblib")
 m_p90 = train_quantile(0.90); joblib.dump(m_p90, "models/arv_q90.joblib")
-print("✅ saved models/arv_q{10,50,90}.joblib")
+print("saved models/arv_q{10,50,90}.joblib")
