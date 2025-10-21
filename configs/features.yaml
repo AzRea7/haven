@@ -1,0 +1,2 @@
+rings_miles: [0.25, 0.5, 1.0]
+momentum_windows_months: [3, 6, 12]

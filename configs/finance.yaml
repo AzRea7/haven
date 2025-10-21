@@ -1,0 +1,8 @@
+rates:
+  annual_interest_rate: 0.065   # scenario input
+  points: 0.0
+fees:
+  buy_closing_rate: 0.02
+  sell_closing_rate: 0.07       # includes agent + transfer + title
+holding:
+  monthly_non_mortgage: 350     # taxes+insurance+utilities placeholder
