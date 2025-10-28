@@ -1,52 +1,87 @@
-import numpy as np, pandas as pd
+from __future__ import annotations
+import numpy as np
+import pandas as pd
 
-EARTH_R = 3958.8  # miles
+EARTH_R_MI = 3958.8  
 
-def haversine(lat1, lon1, lat2, lon2):
-    lat1, lon1, lat2, lon2 = map(np.radians, [lat1,lon1,lat2,lon2])
-    dlat = lat2 - lat1; dlon = lon2 - lon1
-    a = np.sin(dlat/2)**2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon/2)**2
-    return 2 * EARTH_R * np.arcsin(np.sqrt(a))
+def haversine(lat1, lon1, lat2, lon2) -> np.ndarray:
+    """
+    Vectorized haversine distance (miles).
+    lat1/lon1 can be scalars; lat2/lon2 can be arrays (or vice versa).
+    """
+    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = np.sin(dlat/2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2.0)**2
+    return 2.0 * EARTH_R_MI * np.arcsin(np.sqrt(a))
 
-def ring_buckets(dists):
-    # returns ring key per neighbor: 0.5, 1.0, 1.5 (None if > 1.5)
-    r = np.full_like(dists, 999.0, dtype=float)
-    r[dists <= 0.5] = 0.5
-    r[(dists > 0.5) & (dists <= 1.0)] = 1.0
-    r[(dists > 1.0) & (dists <= 1.5)] = 1.5
-    r[r==999.0] = np.nan
+
+def _ring_bucket(distances: np.ndarray) -> np.ndarray:
+    """
+    Map each distance to a ring: 0.5, 1.0, 1.5 miles, NaN if >1.5.
+    """
+    r = np.full_like(distances, np.nan, dtype=float)
+    r[distances <= 0.5] = 0.5
+    r[(distances > 0.5) & (distances <= 1.0)] = 1.0
+    r[(distances > 1.0) & (distances <= 1.5)] = 1.5
     return r
 
-def compute_ring_features(subjects: pd.DataFrame, comps: pd.DataFrame):
-    # subjects: listings to score (lat,lon, zip, beds,baths,sqft, list_price, etc.)
-    # comps:   mix of forSale + sold with needed columns: ['lat','lon','sqft','list_price','sold_price','dom','price_cut','close_date','list_date']
-    out_rows = []
-    subj_arr = subjects[["lat","lon"]].to_numpy()
-    comp_arr = comps[["lat","lon"]].to_numpy()
 
-    # Precompute scalar arrays for comp stats
-    comp_psf = (comps["sold_price"].fillna(comps["list_price"])) / comps["sqft"].clip(lower=300)
-    sale_to_list = comps["sold_price"] / comps["list_price"]
-    price_cuts_p = comps["price_cut"].fillna(0.0)  # assume 0/1 or a %
+def compute_ring_features(subjects: pd.DataFrame, comps: pd.DataFrame) -> pd.DataFrame:
+    """
+    For each subject (row in `subjects` with columns lat/lon), compute ring-based medians
+    from `comps` (forSale + sold universe). Returns subjects with columns appended:
 
-    # months of supply approximate:
-    # MOS ~= Active Listings / Monthly Sales (use 3m average)
-    # You can precompute per ZIP; here, rough local proxy from comps windows.
-    # For simplicity we’ll compute MOS per ring as: actives / (sold in last 90d / 3)
-    recent_days = 90
+        ring050_psf_med, ring100_psf_med, ring150_psf_med
+        ring050_dom_med, ring100_dom_med, ring150_dom_med
+        ring050_sale_to_list_med, ring100_sale_to_list_med, ring150_sale_to_list_med
+        ring050_price_cuts_p, ring100_price_cuts_p, ring150_price_cuts_p
+        ring050_mos, ring100_mos, ring150_mos
+
+    Required comp columns (best-effort; fill NaNs if missing):
+        lat, lon, sqft, list_price, sold_price, dom, price_cut, close_date
+    """
+    req_subj_cols = {"lat","lon"}
+    if not req_subj_cols.issubset(subjects.columns):
+        missing = req_subj_cols - set(subjects.columns)
+        raise ValueError(f"subjects missing required columns: {missing}")
+
+    for col in ["lat","lon"]:
+        if col not in comps.columns:
+            raise ValueError(f"comps missing '{col}'")
+
+    # Prepare arrays for speed
+    subj_xy = subjects[["lat","lon"]].to_numpy()
+    comp_xy = comps[["lat","lon"]].to_numpy()
+
+    # Robust psf: prefer sold_price; fallback to list_price
+    price = comps["sold_price"].where(comps["sold_price"].notna(), comps.get("list_price"))
+    sqft = comps.get("sqft")
+    psf = None
+    if sqft is not None:
+        psf = price / sqft.clip(lower=300)  # clip to cut heavy outliers
+    sale_to_list = None
+    if "sold_price" in comps.columns and "list_price" in comps.columns:
+        sale_to_list = comps["sold_price"] / comps["list_price"]
+
+    price_cuts = comps.get("price_cut")
+    dom = comps.get("dom")
+
+    # recent sold window for MOS (~90 days)
     now = pd.Timestamp.utcnow().normalize()
-    sold_recent = (now - pd.to_datetime(comps["close_date"], errors="coerce")).dt.days <= recent_days
-    active_mask = comps["sold_price"].isna()
+    close_date = pd.to_datetime(comps.get("close_date"), errors="coerce") if "close_date" in comps.columns else None
+    sold_recent = (now - close_date).dt.days <= 90 if close_date is not None else pd.Series(False, index=comps.index)
+    is_active = comps["sold_price"].isna() if "sold_price" in comps.columns else pd.Series(False, index=comps.index)
 
-    for i, (slat, slon) in enumerate(subj_arr):
-        dists = haversine(slat, slon, comp_arr[:,0], comp_arr[:,1])
-        rings = ring_buckets(dists)
+    rows = []
+    for i, (slat, slon) in enumerate(subj_xy):
+        dists = haversine(slat, slon, comp_xy[:,0], comp_xy[:,1])
+        rings = _ring_bucket(dists)
 
         feats = {}
-        for key, label in [(0.5,"050"),(1.0,"100"),(1.5,"150")]:
+        for key, label in [(0.5, "050"), (1.0, "100"), (1.5, "150")]:
             idx = np.where(rings == key)[0]
             if idx.size == 0:
-                # fill NaNs if no comps in ring
                 feats.update({
                     f"ring{label}_psf_med": np.nan,
                     f"ring{label}_dom_med": np.nan,
@@ -56,18 +91,36 @@ def compute_ring_features(subjects: pd.DataFrame, comps: pd.DataFrame):
                 })
                 continue
 
-            feats[f"ring{label}_psf_med"] = np.nanmedian(comp_psf.iloc[idx])
-            feats[f"ring{label}_dom_med"] = np.nanmedian(comps["dom"].iloc[idx])
-            feats[f"ring{label}_sale_to_list_med"] = np.nanmedian(sale_to_list.iloc[idx])
-            feats[f"ring{label}_price_cuts_p"] = float(np.nanmean(price_cuts_p.iloc[idx]))
+            if psf is not None:
+                feats[f"ring{label}_psf_med"] = float(np.nanmedian(psf.iloc[idx].to_numpy()))
+            else:
+                feats[f"ring{label}_psf_med"] = np.nan
 
-            # MOS proxy
-            ring_active = np.sum(active_mask.iloc[idx])
-            ring_sold90 = np.sum(sold_recent.iloc[idx])
-            monthly_sales = max(ring_sold90 / 3.0, 0.001)
-            feats[f"ring{label}_mos"] = ring_active / monthly_sales
+            if dom is not None:
+                feats[f"ring{label}_dom_med"] = float(np.nanmedian(dom.iloc[idx].to_numpy()))
+            else:
+                feats[f"ring{label}_dom_med"] = np.nan
 
-        out_rows.append(feats)
+            if sale_to_list is not None:
+                feats[f"ring{label}_sale_to_list_med"] = float(np.nanmedian(sale_to_list.iloc[idx].to_numpy()))
+            else:
+                feats[f"ring{label}_sale_to_list_med"] = np.nan
 
-    ring_df = pd.DataFrame(out_rows, index=subjects.index)
+            if price_cuts is not None:
+                feats[f"ring{label}_price_cuts_p"] = float(np.nanmean(price_cuts.iloc[idx].to_numpy()))
+            else:
+                feats[f"ring{label}_price_cuts_p"] = np.nan
+
+            # MOS proxy: active listings divided by (monthly sales)
+            if is_active is not None and sold_recent is not None:
+                ring_active = int(np.nansum(is_active.iloc[idx].to_numpy()))
+                ring_sold90 = int(np.nansum(sold_recent.iloc[idx].to_numpy()))
+                monthly_sales = max(ring_sold90 / 3.0, 0.001)
+                feats[f"ring{label}_mos"] = float(ring_active / monthly_sales)
+            else:
+                feats[f"ring{label}_mos"] = np.nan
+
+        rows.append(feats)
+
+    ring_df = pd.DataFrame(rows, index=subjects.index)
     return pd.concat([subjects.reset_index(drop=True), ring_df.reset_index(drop=True)], axis=1)
