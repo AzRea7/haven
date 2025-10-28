@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: haven
+Version: 0.1.0
+Summary: Real estate ARV modeling and flip selection
+Requires-Python: >=3.10
+Requires-Dist: pandas
+Requires-Dist: numpy
+Requires-Dist: lightgbm
+Requires-Dist: scikit-learn
+Requires-Dist: joblib
+Requires-Dist: mlflow
+Requires-Dist: pyarrow
