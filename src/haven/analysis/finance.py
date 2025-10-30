@@ -1,10 +1,7 @@
 from typing import Dict
 from haven.domain.property import Property
-from haven.adapters.config import config
-from haven.adapters.logging_utils import get_logger
-import math
+from haven.domain.assumptions import UnderwritingAssumptions
 
-logger = get_logger(__name__)
 
 def _monthly_mortgage_payment(principal: float, annual_rate: float, years: int) -> float:
     """
@@ -24,6 +21,7 @@ def _monthly_mortgage_payment(principal: float, annual_rate: float, years: int) 
     denom = (1 + r) ** n - 1
     return principal * (numerator / denom)
 
+
 def _aggregate_rent(property: Property) -> float:
     """
     Determine total gross scheduled rent per month.
@@ -34,11 +32,12 @@ def _aggregate_rent(property: Property) -> float:
         return sum((u.market_rent or 0.0) for u in property.units)
     return property.est_market_rent or 0.0
 
-def _effective_rent(gross_rent_monthly: float) -> Dict[str, float]:
+
+def _effective_rent(gross_rent_monthly: float, assumptions: UnderwritingAssumptions) -> Dict[str, float]:
     """
-    Vacancy eats some rent. We assume global config.VACANCY_RATE by default.
+    Apply vacancy to gross rent using assumptions.vacancy_rate.
     """
-    vacancy_loss = gross_rent_monthly * config.VACANCY_RATE
+    vacancy_loss = gross_rent_monthly * assumptions.vacancy_rate
     effective = gross_rent_monthly - vacancy_loss
     return {
         "gross_rent_monthly": gross_rent_monthly,
@@ -46,7 +45,12 @@ def _effective_rent(gross_rent_monthly: float) -> Dict[str, float]:
         "effective_rent_monthly": effective,
     }
 
-def _operating_expenses_monthly(property: Property, effective_rent_monthly: float) -> Dict[str, float]:
+
+def _operating_expenses_monthly(
+    property: Property,
+    effective_rent_monthly: float,
+    assumptions: UnderwritingAssumptions
+) -> Dict[str, float]:
     """
     Operating expenses do NOT include mortgage. (Mortgage is financing, not operations.)
     Industry-standard buckets:
@@ -57,9 +61,9 @@ def _operating_expenses_monthly(property: Property, effective_rent_monthly: floa
     - Insurance
     - HOA (if any)
     """
-    maint = effective_rent_monthly * config.MAINTENANCE_RATE
-    mgmt  = effective_rent_monthly * config.PROPERTY_MGMT_RATE
-    capex = effective_rent_monthly * config.CAPEX_RATE
+    maint = effective_rent_monthly * assumptions.maintenance_rate
+    mgmt  = effective_rent_monthly * assumptions.property_mgmt_rate
+    capex = effective_rent_monthly * assumptions.capex_rate
 
     taxes_monthly = property.taxes_annual / 12.0
     ins_monthly   = property.insurance_annual / 12.0
@@ -77,9 +81,14 @@ def _operating_expenses_monthly(property: Property, effective_rent_monthly: floa
         "total_operating_monthly": total_op,
     }
 
-def analyze_property_financials(property: Property) -> Dict[str, float]:
+
+def analyze_property_financials(
+    property: Property,
+    assumptions: UnderwritingAssumptions
+) -> Dict[str, float]:
     """
-    Core underwriting brain. Returns metrics that investors and lenders check.
+    Core underwriting brain.
+    Returns metrics that investors and lenders actually care about.
     """
 
     # --- financing basics ---
@@ -90,18 +99,22 @@ def analyze_property_financials(property: Property) -> Dict[str, float]:
     mortgage_monthly = _monthly_mortgage_payment(
         principal=loan_amount,
         annual_rate=property.interest_rate_annual,
-        years=property.loan_term_years
+        years=property.loan_term_years,
     )
 
     # --- income side ---
     gross_rent_monthly = _aggregate_rent(property)
-    rent_info = _effective_rent(gross_rent_monthly)
+    rent_info = _effective_rent(gross_rent_monthly, assumptions)
 
     # --- operating expenses ---
-    opx = _operating_expenses_monthly(property, rent_info["effective_rent_monthly"])
+    opx = _operating_expenses_monthly(
+        property,
+        rent_info["effective_rent_monthly"],
+        assumptions,
+    )
 
     # --- NOI (Net Operating Income) ---
-    # NOI is income after vacancy and operating expenses, BEFORE debt.
+    # NOI is income after vacancy + operating expenses, BEFORE debt.
     noi_monthly = rent_info["effective_rent_monthly"] - opx["total_operating_monthly"]
     noi_annual = noi_monthly * 12.0
 
@@ -129,7 +142,7 @@ def analyze_property_financials(property: Property) -> Dict[str, float]:
 
     # --- Cash on Cash Return ---
     # Annualized cash flow / initial cash invested (down payment + closing costs).
-    est_closing_costs = purchase_price * config.DEFAULT_CLOSING_COST_PCT
+    est_closing_costs = purchase_price * assumptions.closing_cost_pct
     total_cash_in = down_payment + est_closing_costs
 
     cash_on_cash = 0.0
@@ -137,8 +150,7 @@ def analyze_property_financials(property: Property) -> Dict[str, float]:
         cash_on_cash = (cashflow_monthly_after_debt * 12.0) / total_cash_in
 
     # --- Breakeven Occupancy ---
-    # Rough heuristic: what % of gross rent is needed to cover op ex + debt?
-    # breakeven_occ = (op ex + debt) / gross scheduled rent
+    # Breakeven occupancy = % of gross rent you must collect so you don't lose money
     breakeven_occ = 0.0
     if gross_rent_monthly > 0:
         breakeven_occ = (
@@ -167,9 +179,7 @@ def analyze_property_financials(property: Property) -> Dict[str, float]:
         "cash_on_cash_return": cash_on_cash,
         "breakeven_occupancy_pct": breakeven_occ,
 
-        "meets_lender_dscr_threshold": dscr >= config.MIN_DSCR_GOOD,
+        "meets_lender_dscr_threshold": dscr >= assumptions.min_dscr_good,
     }
 
-    logger.info("analyze_property_financials complete",
-                extra={"context": result})
     return result
