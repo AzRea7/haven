@@ -2,6 +2,7 @@ from typing import List
 from fastapi import FastAPI, HTTPException
 from haven.services.deal_analyzer import analyze_deal_with_defaults
 from haven.adapters.sql_repo import SqlDealRepository, DealRow
+from haven.api.schemas import AnalyzeRequest, AnalyzeResponse
 
 app = FastAPI(title="Haven Deal Analysis API")
 _repo = SqlDealRepository("sqlite:///haven.db")
@@ -18,11 +19,11 @@ def analyze_endpoint(payload: dict):
         raise HTTPException(status_code=400, detail=str(e))
 
 # add dependency-friendly variant so we can use our repo instance
-@app.post("/analyze2")
-def analyze_endpoint2(payload: dict):
+@app.post("/analyze2", response_model=AnalyzeResponse)
+def analyze_endpoint2(payload: AnalyzeRequest):
     from haven.services.deal_analyzer import analyze_deal, _default_estimator
     try:
-        return analyze_deal(payload, rent_estimator=_default_estimator, repo=_repo)
+        return analyze_deal(payload.model_dump(), rent_estimator=_default_estimator, repo=_repo)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
