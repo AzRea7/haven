@@ -1,4 +1,5 @@
 from typing import Dict, Any, Optional
+from haven.adapters.sql_repo import SqlDealRepository
 from haven.domain.property import Property, Unit
 from haven.domain.assumptions import UnderwritingAssumptions
 from haven.domain.ports import RentEstimator, DealRepository
@@ -6,6 +7,7 @@ from haven.adapters.config import config
 from haven.adapters.logging_utils import get_logger
 from haven.adapters.rent_estimator_lightgbm import LightGBMRentEstimator
 from haven.adapters.memory_repo import InMemoryDealRepository
+
 
 from haven.services.validation import validate_and_prepare_payload
 from haven.analysis.finance import analyze_property_financials
@@ -93,13 +95,16 @@ def analyze_deal(
     logger.info("deal_analyzed", extra={"context": result})
 
     # 8. Persist
+    deal_id = None
     if repo is not None:
-        repo.save_analysis(result)
-
+        deal_id = repo.save_analysis(result, raw_payload)
+    
+    if deal_id is not None:
+        result["deal_id"] = deal_id
     return result
 
 # convenient defaults
-_default_repo = InMemoryDealRepository()
+_default_repo = SqlDealRepository(uri="sqlite:///haven.db")
 _default_estimator = LightGBMRentEstimator()
 
 def analyze_deal_with_defaults(raw_payload: Dict[str, Any]) -> Dict[str, Any]:
