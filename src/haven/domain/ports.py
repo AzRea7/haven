@@ -1,5 +1,4 @@
-# src/haven/domain/ports.py
-from typing import Protocol
+from typing import Protocol, Dict, Any
 
 class RentEstimator(Protocol):
     def predict_unit_rent(
@@ -10,4 +9,8 @@ class RentEstimator(Protocol):
         zipcode: str,
         property_type: str,
     ) -> float:
+        ...
+
+class DealRepository(Protocol):
+    def save_analysis(self, analysis: Dict[str, Any]) -> None:
         ...

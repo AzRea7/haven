@@ -1,8 +1,8 @@
+# src/haven/services/features.py
 from __future__ import annotations
 import pandas as pd
 import numpy as np
 
-# single source of truth
 FEATURES = [
     "beds","baths","sqft","year_built","zip","psf",
     "zhvi_chg_3m","zhvi_chg_6m","zhvi_chg_12m",
@@ -31,21 +31,34 @@ def normalize_sold(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 def attach_momentum(base: pd.DataFrame, zip_momentum: pd.DataFrame) -> pd.DataFrame:
-    # zip_momentum columns: ['zip','date','zhvi_chg_3m','...','zori_chg_12m'] (one per zip, most recent)
     cols = [c for c in zip_momentum.columns if c != "date"]
     return base.merge(zip_momentum[cols], on="zip", how="left")
+
+def _normalize_rings(rings) -> tuple[float, ...]:
+    if rings is None:
+        return (0.5, 1.0, 1.5)
+    out = []
+    for r in rings:
+        if isinstance(r, str):
+            # accept "050" / "100" / "150" → 0.5 / 1.0 / 1.5
+            out.append(float(r) / 100.0)
+        else:
+            out.append(float(r))
+    # ensure sorted unique
+    return tuple(sorted(set(out)))
 
 def attach_ring_features(subjects: pd.DataFrame, comps: pd.DataFrame,
                          rings=("050","100","150")) -> pd.DataFrame:
     """
     subjects: rows to train/score (must have lat/lon)
     comps: universe with columns used by adapters.geo.compute_ring_features
+    rings: iterable of rings (either strings like '050' or floats in miles)
     """
     from haven.adapters.geo import compute_ring_features
-    return compute_ring_features(subjects, comps, rings=rings)
+    ring_distances = _normalize_rings(rings)
+    return compute_ring_features(subjects, comps, rings=ring_distances)
 
 def finalize_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
-    # ensure all FEATURES exist 
     for c in FEATURES:
         if c not in df.columns:
             df[c] = np.nan
