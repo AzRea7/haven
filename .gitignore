@@ -1,2 +1,34 @@
 .env
 data/raw/hasdata/
+haven/Lib
+
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.dist/
+build/
+.eggs/
+
+# Virtual environments (never commit these)
+.venv/
+venv/
+env/
+ENV/
+*.venv/
+# Your committed env path:
+haven/Lib/
+haven/Include/
+haven/Scripts/
+haven/pyvenv.cfg
+
+# OS / editor
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# Data & artifacts (adjust as needed)
+*.ipynb_checkpoints
+*.log
+*.tmp
