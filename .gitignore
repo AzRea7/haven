@@ -22,6 +22,8 @@ haven/Include/
 haven/Scripts/
 haven/pyvenv.cfg
 
+requirements.txt
+
 # OS / editor
 .DS_Store
 *.swp
