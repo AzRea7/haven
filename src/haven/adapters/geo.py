@@ -66,6 +66,7 @@ def compute_ring_features(
 
     sold_dt_col = "sold_date" if "sold_date" in comps.columns else ("close_date" if "close_date" in comps.columns else None)
     if sold_dt_col is not None:
+        # Make tz-naive and compute "recent" (<= 90 days) as a boolean Series
         close_date = pd.to_datetime(comps[sold_dt_col], errors="coerce", utc=True).dt.tz_convert(None)
         now = pd.Timestamp.now(tz=None).normalize()
         sold_recent = (now - close_date).dt.days <= 90
@@ -116,8 +117,9 @@ def compute_ring_features(
             else:
                 feats[f"ring{lab}_price_cuts_p"] = float("nan")
 
-            ring_active = int(np.nansum(is_active.to_numpy()[idx].astype(float)))
-            ring_sold90 = int(np.nansum(sold_recent.to_numpy()[idx].astype(float)))
+            # Pure-Pandas boolean sums (no NumPy on datetime)
+            ring_active = int(is_active.iloc[idx].sum())
+            ring_sold90 = int(sold_recent.iloc[idx].sum())
             monthly_sales = max(ring_sold90 / 3.0, 0.001)
             feats[f"ring{lab}_mos"] = float(ring_active / monthly_sales)
 

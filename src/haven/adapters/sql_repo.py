@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlmodel import JSON, Column, Field, Session, SQLModel, create_engine, desc, select
+
+from haven.domain.ports import DealRowLike
 
 
 class DealRow(SQLModel, table=True): # type: ignore[call-arg]
@@ -45,11 +48,13 @@ class SqlDealRepository:
             assert row.id is not None
             return int(row.id)
 
-    def get(self, deal_id: int) -> DealRow | None:
-        with Session(self.engine) as s:
-            return s.get(DealRow, deal_id)
-
-    def list_recent(self, limit: int = 50) -> list[DealRow]:
+    def list_recent(self, limit: int = 50) -> Sequence[DealRowLike]:
         with Session(self.engine) as s:
             stmt = select(DealRow).order_by(desc(DealRow.ts)).limit(limit)
-            return list(s.exec(stmt))
+            rows = list(s.exec(stmt))
+            return cast(Sequence[DealRowLike], rows)
+
+    def get(self, deal_id: int) -> DealRowLike | None:
+        with Session(self.engine) as s:
+            row = s.get(DealRow, deal_id)
+            return cast(DealRowLike | None, row)
