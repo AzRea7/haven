@@ -13,5 +13,9 @@ class RentEstimator(Protocol):
         ...
 
 class DealRepository(Protocol):
-    def save_analysis(self, analysis: dict[str, Any]) -> None:
+    def save_analysis(
+        self,
+        analysis: dict[str, Any],
+        request_payload: dict[str, Any] | None = None,
+    ) -> int | None:
         ...

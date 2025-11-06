@@ -1,12 +1,12 @@
 # src/haven/adapters/geo.py
 from __future__ import annotations
-
 import numpy as np
+from numpy.typing import ArrayLike
 import pandas as pd
 
 EARTH_R_MI = 3958.8
 
-def haversine(lat1, lon1, lat2, lon2) -> np.ndarray:
+def haversine(lat1: ArrayLike, lon1: ArrayLike, lat2: ArrayLike, lon2: ArrayLike) -> np.ndarray:
     lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
     dlat = lat2 - lat1
     dlon = lon2 - lon1

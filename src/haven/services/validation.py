@@ -11,7 +11,7 @@ REQUIRED_FIELDS = [
     "insurance_annual",
 ]
 
-def _to_num(val, field_name: str) -> float:
+def _to_num(val: Any, field_name: str) -> float:
     """
     Coerce values like "250000", "6.5", "6.5%", 0.07, etc. to float.
     """
@@ -23,7 +23,7 @@ def _to_num(val, field_name: str) -> float:
         return float(val.strip().replace("%", ""))
     raise ValueError(f"Invalid type for {field_name}: {type(val)}")
 
-def _to_num_optional(val) -> float:
+def _to_num_optional(val: Any) -> float:
     if val is None:
         return 0.0
     if isinstance(val, (int, float)):

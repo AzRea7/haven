@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlmodel import JSON, Column, Field, Session, SQLModel, create_engine, select
+from sqlmodel import JSON, Column, Field, Session, SQLModel, create_engine, select, desc
 
 
 class DealRow(SQLModel, table=True):
@@ -37,7 +37,8 @@ class SqlDealRepository:
             s.add(row)
             s.commit()
             s.refresh(row)
-            return row.id
+            assert row.id is not None
+            return int(row.id)
 
     def get(self, deal_id: int) -> DealRow | None:
         with Session(self.engine) as s:
@@ -45,5 +46,5 @@ class SqlDealRepository:
 
     def list_recent(self, limit: int = 50) -> list[DealRow]:
         with Session(self.engine) as s:
-            stmt = select(DealRow).order_by(DealRow.ts.desc()).limit(limit)
+            stmt = select(DealRow).order_by(desc(DealRow.ts)).limit(limit)
             return list(s.exec(stmt))

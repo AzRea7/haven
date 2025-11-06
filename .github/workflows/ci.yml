@@ -15,6 +15,7 @@ jobs:
         with:
           python-version: "3.10"
           cache: "pip"
+      - run: pip install --upgrade pip
       - run: pip install ruff
       - run: ruff --version && ruff check src tests
 
@@ -28,9 +29,14 @@ jobs:
         with:
           python-version: "3.10"
           cache: "pip"
-      - run: pip install mypy
-      - run: pip install -r requirements.txt
-      - run: mypy src
+      - name: Install deps (app + stubs)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Type checker + useful third-party stubs
+          pip install mypy pandas-stubs types-requests types-python-dateutil typing-extensions
+      - name: Mypy
+        run: mypy src
 
   test:
     name: Pytest
@@ -44,7 +50,6 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: haven_test
         ports: ["5432:5432"]
-        # Healthcheck so tests wait until DB is ready (if you switch from SQLite later)
         options: >-
           --health-cmd="pg_isready -U postgres"
           --health-interval=5s
@@ -56,6 +61,7 @@ jobs:
         with:
           python-version: "3.10"
           cache: "pip"
+      - run: pip install --upgrade pip
       - run: pip install -r requirements.txt
       - run: pip install -e .
       - run: pytest -q

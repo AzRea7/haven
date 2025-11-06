@@ -2,16 +2,18 @@ import numpy as np
 import pandas as pd
 from sklearn.calibration import calibration_curve
 from sklearn.metrics import average_precision_score, precision_recall_curve
+from typing import Any
+from numpy.typing import ArrayLike
 
 
-def mape(y, yhat):
+def mape(y: ArrayLike, yhat: ArrayLike) -> float:
     y = np.maximum(y, 1.0)
-    return np.mean(np.abs(yhat - y) / y)
+    return float(np.mean(np.abs(yhat - y) / y))
 
-def mae(y, yhat):
+def mae(y: ArrayLike, yhat: ArrayLike) -> float:
     return float(np.mean(np.abs(yhat - y)))
 
-def eval_arv_by_time_zip(df: pd.DataFrame, date_col="sold_date", zip_col="zip"):
+def eval_arv_by_time_zip(df: pd.DataFrame, date_col="sold_date", zip_col="zip") -> pd.DataFrame:
     df = df.copy().dropna(subset=["sold_price","q50"])
     df["quarter"] = pd.to_datetime(df[date_col]).dt.to_period("Q").astype(str)
     out = []
@@ -21,7 +23,7 @@ def eval_arv_by_time_zip(df: pd.DataFrame, date_col="sold_date", zip_col="zip"):
                         mae=mae(g["sold_price"], g["q50"])))
     return pd.DataFrame(out).sort_values(["quarter","zip"])
 
-def eval_classifier(y_true, p_hat):
+def eval_classifier(y_true: ArrayLike, p_hat: ArrayLike) -> dict[str, Any]:
     prec, rec, thr = precision_recall_curve(y_true, p_hat)
     ap = average_precision_score(y_true, p_hat)
     frac_pos, mean_pred = calibration_curve(y_true, p_hat, n_bins=10)

@@ -4,7 +4,7 @@ from haven.domain.ports import DealRepository
 
 
 class InMemoryDealRepository(DealRepository):
-    def __init__(self):
+    def __init__(self) -> None:
         self._items: list[dict[str, Any]] = []
 
     def save_analysis(self, analysis: dict[str, Any]) -> None:

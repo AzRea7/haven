@@ -2,12 +2,11 @@ import json
 import logging
 import sys
 import time
-
 from .config import config
 
 
 class JsonLogFormatter(logging.Formatter):
-    def format(self, record):
+    def format(self, record: logging.LogRecord) -> str:
         payload = {
             "ts": time.time(),
             "level": record.levelname,
