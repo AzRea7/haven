@@ -15,7 +15,7 @@ def analyze_endpoint(payload: dict):
             raw_payload=payload,  # type: ignore
         )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 # add dependency-friendly variant so we can use our repo instance
 @app.post("/analyze2", response_model=AnalyzeResponse)
