@@ -98,24 +98,25 @@ def compute_ring_features(
                 continue
 
             if psf is not None:
-                feats[f"ring{lab}_psf_med"] = float(np.nanmedian(psf.to_numpy()[idx]))
+                feats[f"ring{lab}_psf_med"] = float(np.nanmedian(psf.to_numpy(dtype=float)[idx]))
             else:
                 feats[f"ring{lab}_psf_med"] = float("nan")
 
             if dom is not None:
-                feats[f"ring{lab}_dom_med"] = float(np.nanmedian(dom.to_numpy()[idx]))
+                feats[f"ring{lab}_dom_med"] = float(np.nanmedian(dom.to_numpy(dtype=float)[idx]))
             else:
                 feats[f"ring{lab}_dom_med"] = float("nan")
 
             if sale_to_list is not None:
-                feats[f"ring{lab}_sale_to_list_med"] = float(np.nanmedian(sale_to_list.to_numpy()[idx]))
+                feats[f"ring{lab}_sale_to_list_med"] = float(np.nanmedian(sale_to_list.to_numpy(dtype=float)[idx]))
             else:
                 feats[f"ring{lab}_sale_to_list_med"] = float("nan")
 
             if price_cuts is not None:
-                feats[f"ring{lab}_price_cuts_p"] = float(np.nanmean(price_cuts.to_numpy()[idx]))
+                feats[f"ring{lab}_price_cuts_p"] = float(np.nanmean(price_cuts.to_numpy(dtype=float)[idx]))
             else:
                 feats[f"ring{lab}_price_cuts_p"] = float("nan")
+
 
             # Pure-Pandas boolean sums (no NumPy on datetime)
             ring_active = int(is_active.iloc[idx].sum())

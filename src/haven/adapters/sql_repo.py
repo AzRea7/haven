@@ -9,7 +9,7 @@ from sqlmodel import JSON, Column, Field, Session, SQLModel, create_engine, desc
 from haven.domain.ports import DealRowLike
 
 
-class DealRow(SQLModel, table=True): # type: ignore[call-arg]
+class DealRow(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     ts: datetime = Field(default_factory=datetime.utcnow, index=True)
     address: str
