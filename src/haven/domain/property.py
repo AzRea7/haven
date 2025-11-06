@@ -1,12 +1,6 @@
-from typing import ClassVar, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field, validator
-
-@validator("down_payment_pct")
-def _pct_range(cls: ClassVar[type["Property"]], v: float) -> float:
-    if not (0.0 <= v <= 1.0):
-        raise ValueError("down_payment_pct must be between 0 and 1")
-    return v
 
 # All asset classes we support
 PropertyType = Literal[
@@ -45,3 +39,9 @@ class Property(BaseModel):
 
     # For single-door deals (house, condo, single apartment)
     est_market_rent: float | None = None
+
+    @validator("down_payment_pct")
+    def _pct_range(cls, v: float) -> float:
+        if not (0.0 <= v <= 1.0):
+            raise ValueError("down_payment_pct must be between 0 and 1")
+        return v

@@ -1,7 +1,9 @@
-import joblib
-import pandas as pd
 from collections.abc import Mapping
 from typing import Any
+
+import joblib
+import pandas as pd
+
 
 def load_arv_bundle(model_dir: str = "models") -> dict[str, Any]:
     q10 = joblib.load(f"{model_dir}/arv_q10.joblib")

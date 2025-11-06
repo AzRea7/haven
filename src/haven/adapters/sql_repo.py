@@ -6,7 +6,7 @@ from typing import Any
 from sqlmodel import JSON, Column, Field, Session, SQLModel, create_engine, desc, select
 
 
-class DealRow(SQLModel, table=True):
+class DealRow(SQLModel, table=True): # type: ignore[call-arg]
     id: int | None = Field(default=None, primary_key=True)
     ts: datetime = Field(default_factory=datetime.utcnow, index=True)
     address: str
@@ -16,13 +16,18 @@ class DealRow(SQLModel, table=True):
     property_type: str
     payload: dict[str, Any] = Field(sa_column=Column(JSON))   # request
     result: dict[str, Any]  = Field(sa_column=Column(JSON))   # analysis out
+    request_payload: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
 
 class SqlDealRepository:
     def __init__(self, uri: str = "sqlite:///haven.db"):
         self.engine = create_engine(uri, echo=False)
         SQLModel.metadata.create_all(self.engine)
 
-    def save_analysis(self, analysis: dict[str, Any], request_payload: dict[str, Any]) -> int:
+    def save_analysis(
+        self,
+        analysis: dict[str, Any],
+        request_payload: dict[str, Any] | None = None,
+    ) -> int:
         addr = analysis.get("address", {})
         row = DealRow(
             address=addr.get("address",""),

@@ -1,14 +1,22 @@
 # src/haven/api/http.py
+from collections.abc import Sequence
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
-from haven.adapters.sql_repo import DealRow, SqlDealRepository
+from haven.adapters.sql_repo import SqlDealRepository
+from haven.domain.ports import DealRepository, DealRowLike
 from haven.services.deal_analyzer import analyze_deal_with_defaults
+
 from .schemas import AnalyzeRequest, AnalyzeResponse
 
 app = FastAPI()
-_repo = SqlDealRepository()
+_repo: DealRepository = SqlDealRepository()
+
+@app.get("/deals", response_model=list[dict])
+def list_deals(limit: int = 50) -> list[dict]:
+    rows: Sequence[DealRowLike] = _repo.list_recent(limit=limit)
+    return [r.result | {"deal_id": r.id, "ts": r.ts.isoformat()} for r in rows]
 
 @app.post("/analyze")
 def analyze_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
@@ -26,11 +34,6 @@ def analyze_endpoint2(payload: AnalyzeRequest) -> AnalyzeResponse:
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e  # B904
-
-@app.get("/deals", response_model=list[dict])
-def list_deals(limit: int = 50) -> list[dict]:
-    rows: list[DealRow] = _repo.list_recent(limit=limit)
-    return [r.result | {"deal_id": r.id, "ts": r.ts.isoformat()} for r in rows]
 
 @app.get("/deals/{deal_id}", response_model=dict)
 def get_deal(deal_id: int) -> dict:
