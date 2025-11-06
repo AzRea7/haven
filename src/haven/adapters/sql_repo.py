@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlmodel import JSON, Column, Field, Session, SQLModel, create_engine, select, desc
+from sqlmodel import JSON, Column, Field, Session, SQLModel, create_engine, desc, select
 
 
 class DealRow(SQLModel, table=True):

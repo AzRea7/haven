@@ -1,7 +1,6 @@
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field, validator
-from typing import ClassVar
 
 @validator("down_payment_pct")
 def _pct_range(cls: ClassVar[type["Property"]], v: float) -> float:

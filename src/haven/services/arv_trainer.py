@@ -1,8 +1,9 @@
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-from typing import Any, Iterator
+from collections.abc import Iterator
 from numpy.typing import ArrayLike
+from typing import Any
 
 TARGET = "sold_price"
 DATE = "sold_date"

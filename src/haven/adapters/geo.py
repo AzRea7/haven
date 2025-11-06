@@ -1,8 +1,9 @@
 # src/haven/adapters/geo.py
 from __future__ import annotations
+
 import numpy as np
-from numpy.typing import ArrayLike
 import pandas as pd
+from numpy.typing import ArrayLike
 
 EARTH_R_MI = 3958.8
 

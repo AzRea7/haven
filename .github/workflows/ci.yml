@@ -16,8 +16,9 @@ jobs:
           python-version: "3.10"
           cache: "pip"
       - run: pip install --upgrade pip
-      - run: pip install ruff
-      - run: ruff --version && ruff check src tests
+      - run: pip install ruff==0.14.3
+      - run: ruff --version && ruff check --fix src tests && ruff check src tests
+
 
   typecheck:
     name: MyPy Type Check

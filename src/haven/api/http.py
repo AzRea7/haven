@@ -1,9 +1,11 @@
 # src/haven/api/http.py
-from fastapi import FastAPI, HTTPException
 from typing import Any
+
+from fastapi import FastAPI, HTTPException
+
+from haven.adapters.sql_repo import DealRow, SqlDealRepository
 from haven.services.deal_analyzer import analyze_deal_with_defaults
 from .schemas import AnalyzeRequest, AnalyzeResponse
-from haven.adapters.sql_repo import SqlDealRepository, DealRow
 
 app = FastAPI()
 _repo = SqlDealRepository()
@@ -11,18 +13,19 @@ _repo = SqlDealRepository()
 @app.post("/analyze")
 def analyze_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
     try:
-        # call the real function directly; it already wires defaults to SQL repo
         return analyze_deal_with_defaults(raw_payload=payload)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e  # B904
 
 @app.post("/analyze2", response_model=AnalyzeResponse)
 def analyze_endpoint2(payload: AnalyzeRequest) -> AnalyzeResponse:
     from haven.services.deal_analyzer import _default_estimator, analyze_deal
     try:
-        return AnalyzeResponse(**analyze_deal(payload.model_dump(), rent_estimator=_default_estimator, repo=_repo))
+        return AnalyzeResponse(
+            **analyze_deal(payload.model_dump(), rent_estimator=_default_estimator, repo=_repo)
+        )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e  # B904
 
 @app.get("/deals", response_model=list[dict])
 def list_deals(limit: int = 50) -> list[dict]:
