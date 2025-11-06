@@ -40,8 +40,15 @@ COPY --chown=appuser:appuser src ./src
 ENV PYTHONPATH=/app/src
 
 # Entrypoint
-COPY --chown=appuser:appuser entrypoints/start.sh /entrypoints/start.sh
-RUN chmod +x /entrypoints/start.sh
+# ensure the target dir exists
+RUN mkdir -p /entrypoints
+
+# copy the script and set owner/permissions in one go
+COPY --chown=appuser:appuser --chmod=755 entrypoints/start.sh /entrypoints/start.sh
+
+# optional but nice: set entrypoint now (or keep CMD elsewhere)
+ENTRYPOINT ["/entrypoints/start.sh"]
+
 
 EXPOSE 8000
 CMD ["/entrypoints/start.sh"]
