@@ -1,8 +1,10 @@
-import logging
 import json
+import logging
 import sys
 import time
+
 from .config import config
+
 
 class JsonLogFormatter(logging.Formatter):
     def format(self, record):

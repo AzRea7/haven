@@ -1,6 +1,8 @@
-import numpy as np, pandas as pd
+import numpy as np
+import pandas as pd
 from sklearn.calibration import calibration_curve
-from sklearn.metrics import precision_recall_curve, average_precision_score
+from sklearn.metrics import average_precision_score, precision_recall_curve
+
 
 def mape(y, yhat): y = np.maximum(y, 1.0); return np.mean(np.abs(yhat - y) / y)
 def mae(y, yhat):  return float(np.mean(np.abs(yhat - y)))

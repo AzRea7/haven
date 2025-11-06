@@ -1,5 +1,7 @@
 import pandas as pd
+
 from haven.services.features import attach_ring_features
+
 
 def test_ring_feature_columns_exist_tz_safe():
     subjects = pd.DataFrame([{"lat": 42.3314, "lon": -83.0458}])

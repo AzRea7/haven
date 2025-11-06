@@ -1,6 +1,6 @@
-from typing import Dict
-from haven.domain.property import Property
+
 from haven.domain.assumptions import UnderwritingAssumptions
+from haven.domain.property import Property
 
 
 def _monthly_mortgage_payment(principal: float, annual_rate: float, years: int) -> float:
@@ -33,7 +33,7 @@ def _aggregate_rent(property: Property) -> float:
     return property.est_market_rent or 0.0
 
 
-def _effective_rent(gross_rent_monthly: float, assumptions: UnderwritingAssumptions) -> Dict[str, float]:
+def _effective_rent(gross_rent_monthly: float, assumptions: UnderwritingAssumptions) -> dict[str, float]:
     """
     Apply vacancy to gross rent using assumptions.vacancy_rate.
     """
@@ -50,7 +50,7 @@ def _operating_expenses_monthly(
     property: Property,
     effective_rent_monthly: float,
     assumptions: UnderwritingAssumptions
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Operating expenses do NOT include mortgage. (Mortgage is financing, not operations.)
     Industry-standard buckets:
@@ -85,7 +85,7 @@ def _operating_expenses_monthly(
 def analyze_property_financials(
     property: Property,
     assumptions: UnderwritingAssumptions
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Core underwriting brain.
     Returns metrics that investors and lenders actually care about.

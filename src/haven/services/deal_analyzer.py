@@ -1,18 +1,16 @@
-from typing import Dict, Any, Optional
-from haven.adapters.sql_repo import SqlDealRepository
-from haven.domain.property import Property, Unit
-from haven.domain.assumptions import UnderwritingAssumptions
-from haven.domain.ports import RentEstimator, DealRepository
+from typing import Any
+
 from haven.adapters.config import config
 from haven.adapters.logging_utils import get_logger
 from haven.adapters.rent_estimator_lightgbm import LightGBMRentEstimator
-from haven.adapters.memory_repo import InMemoryDealRepository
-
-
-from haven.services.validation import validate_and_prepare_payload
+from haven.adapters.sql_repo import SqlDealRepository
 from haven.analysis.finance import analyze_property_financials
-from haven.analysis.valuation import summarize_deal_pricing
 from haven.analysis.scoring import score_deal
+from haven.analysis.valuation import summarize_deal_pricing
+from haven.domain.assumptions import UnderwritingAssumptions
+from haven.domain.ports import DealRepository, RentEstimator
+from haven.domain.property import Property, Unit
+from haven.services.validation import validate_and_prepare_payload
 
 logger = get_logger(__name__)
 
@@ -42,10 +40,10 @@ def _fill_missing_rents(prop: Property, rent_estimator: RentEstimator) -> Proper
     return prop
 
 def analyze_deal(
-    raw_payload: Dict[str, Any],
+    raw_payload: dict[str, Any],
     rent_estimator: RentEstimator,
-    repo: Optional[DealRepository] = None,
-) -> Dict[str, Any]:
+    repo: DealRepository | None = None,
+) -> dict[str, Any]:
 
     # 1. Clean/normalize data
     payload = validate_and_prepare_payload(raw_payload)
@@ -98,7 +96,7 @@ def analyze_deal(
     deal_id = None
     if repo is not None:
         deal_id = repo.save_analysis(result, raw_payload)
-    
+
     if deal_id is not None:
         result["deal_id"] = deal_id
     return result
@@ -107,7 +105,7 @@ def analyze_deal(
 _default_repo = SqlDealRepository(uri="sqlite:///haven.db")
 _default_estimator = LightGBMRentEstimator()
 
-def analyze_deal_with_defaults(raw_payload: Dict[str, Any]) -> Dict[str, Any]:
+def analyze_deal_with_defaults(raw_payload: dict[str, Any]) -> dict[str, Any]:
     return analyze_deal(
         raw_payload=raw_payload,
         rent_estimator=_default_estimator,

@@ -1,4 +1,5 @@
-from typing import Optional, List, Literal
+from typing import Literal
+
 from pydantic import BaseModel, Field, validator
 
 # All asset classes we support
@@ -11,10 +12,10 @@ PropertyType = Literal[
 ]
 
 class Unit(BaseModel):
-    bedrooms: Optional[float] = None
-    bathrooms: Optional[float] = None
-    sqft: Optional[float] = None
-    market_rent: Optional[float] = None  # expected achievable rent for this unit
+    bedrooms: float | None = None
+    bathrooms: float | None = None
+    sqft: float | None = None
+    market_rent: float | None = None  # expected achievable rent for this unit
 
 class Property(BaseModel):
     property_type: PropertyType
@@ -34,10 +35,10 @@ class Property(BaseModel):
     hoa_monthly: float = 0.0
 
     # For multifamily / complexes
-    units: Optional[List[Unit]] = None
+    units: list[Unit] | None = None
 
     # For single-door deals (house, condo, single apartment)
-    est_market_rent: Optional[float] = None
+    est_market_rent: float | None = None
 
     @validator("down_payment_pct")
     def _pct_range(cls, v):

@@ -1,7 +1,8 @@
-from typing import Dict
-from haven.domain.property import Property
+
 from haven.analysis.finance import analyze_property_financials
 from haven.domain.assumptions import UnderwritingAssumptions
+from haven.domain.property import Property
+
 
 def _estimate_value_income_approach(noi_annual: float, market_cap_rate: float) -> float:
     if market_cap_rate <= 0:
@@ -19,7 +20,7 @@ def summarize_deal_pricing(
     assumptions: UnderwritingAssumptions,
     assumed_price_per_sqft: float = 200.0,
     assumed_market_cap_rate: float = 0.07,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Decide if this deal looks under/overpriced.
     Income approach for apartment_complex.

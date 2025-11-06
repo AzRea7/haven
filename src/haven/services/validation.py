@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 
 REQUIRED_FIELDS = [
     "property_type",
@@ -32,7 +32,7 @@ def _to_num_optional(val) -> float:
         return float(val.strip().replace("%", ""))
     return 0.0
 
-def validate_and_prepare_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
+def validate_and_prepare_payload(raw: dict[str, Any]) -> dict[str, Any]:
     """
     - Ensure required core fields exist.
     - Normalize numeric/percent fields.

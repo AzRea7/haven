@@ -1,8 +1,8 @@
-from typing import List
 from fastapi import FastAPI, HTTPException
-from haven.services.deal_analyzer import analyze_deal_with_defaults
-from haven.adapters.sql_repo import SqlDealRepository, DealRow
+
+from haven.adapters.sql_repo import DealRow, SqlDealRepository
 from haven.api.schemas import AnalyzeRequest, AnalyzeResponse
+from haven.services.deal_analyzer import analyze_deal_with_defaults
 
 app = FastAPI(title="Haven Deal Analysis API")
 _repo = SqlDealRepository("sqlite:///haven.db")
@@ -11,7 +11,6 @@ _repo = SqlDealRepository("sqlite:///haven.db")
 def analyze_endpoint(payload: dict):
     try:
         # use the same default estimator but pass our SQL repo
-        from haven.services.deal_analyzer import _default_estimator
         return analyze_deal_with_defaults.__wrapped__(  # call underlying fn so we can pass repo
             raw_payload=payload,  # type: ignore
         )
@@ -21,7 +20,7 @@ def analyze_endpoint(payload: dict):
 # add dependency-friendly variant so we can use our repo instance
 @app.post("/analyze2", response_model=AnalyzeResponse)
 def analyze_endpoint2(payload: AnalyzeRequest):
-    from haven.services.deal_analyzer import analyze_deal, _default_estimator
+    from haven.services.deal_analyzer import _default_estimator, analyze_deal
     try:
         return analyze_deal(payload.model_dump(), rent_estimator=_default_estimator, repo=_repo)
     except Exception as e:

@@ -1,8 +1,14 @@
-import os, re, json, time, csv, datetime as dt
-from typing import List, Dict, Any, Optional
-import requests
+import csv
+import datetime as dt
+import json
+import os
+import re
+import time
+from typing import Any
+
 import pandas as pd
-from dotenv import load_dotenv, find_dotenv
+import requests
+from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv())
 
@@ -33,7 +39,7 @@ def is_valid_zillow_homedetails(url: str) -> bool:
     return bool(VALID_HOMEDTLS.match(u))
 
 
-def _request_with_retries(url: str, params: Dict[str, Any], max_retries: int = 4, backoff: float = 1.6) -> Dict[str, Any]:
+def _request_with_retries(url: str, params: dict[str, Any], max_retries: int = 4, backoff: float = 1.6) -> dict[str, Any]:
     """
     GET with retry/backoff. Handles 429 with Retry-After when available.
     """
@@ -61,7 +67,7 @@ def _request_with_retries(url: str, params: Dict[str, Any], max_retries: int = 4
     raise RuntimeError("Unreachable")
 
 
-def fetch_property_by_url(zillow_url: str) -> Dict[str, Any]:
+def fetch_property_by_url(zillow_url: str) -> dict[str, Any]:
     """
     Fetch a single property's JSON from HasData and persist raw JSON under data/raw/hasdata/.
     Returns the parsed dict.
@@ -87,8 +93,8 @@ def fetch_properties_from_file(urls_csv: str, out_csv: str, url_col: str = "url"
     if url_col not in df_urls.columns:
         raise ValueError(f"Column `{url_col}` not found in {urls_csv}")
 
-    records: List[Dict[str, Any]] = []
-    errors: List[Dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
     tstamp = dt.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     err_path = os.path.join(RAW_DIR, f"errors_{tstamp}.csv")
 
@@ -155,7 +161,7 @@ def fetch_properties_from_file(urls_csv: str, out_csv: str, url_col: str = "url"
     return out_df
 
 
-def fetch_zillow_dump(kind: str, out_path: str, url_list_path: Optional[str] = None, url_col: str = "url") -> pd.DataFrame:
+def fetch_zillow_dump(kind: str, out_path: str, url_list_path: str | None = None, url_col: str = "url") -> pd.DataFrame:
     """
     Shim used by CLI:
       - kind in {"sold","forSale"} picks default url list at data/raw/zillow_urls_{kind}.csv

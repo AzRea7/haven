@@ -1,6 +1,7 @@
-from haven.domain.property import Property
-from haven.domain.assumptions import UnderwritingAssumptions
 from haven.analysis.finance import analyze_property_financials
+from haven.domain.assumptions import UnderwritingAssumptions
+from haven.domain.property import Property
+
 
 def test_single_family_finance_smoke():
     prop = Property(
