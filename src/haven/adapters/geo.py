@@ -15,7 +15,7 @@ def haversine(lat1, lon1, lat2, lon2) -> np.ndarray:
 
 def _label_for_ring(r: float) -> str:
     # 0.5 -> "050", 1.0 -> "100", 1.5 -> "150"
-    return f"{int(round(r * 100)):03d}"
+    return f"{round(r * 100):03d}"
 
 def compute_ring_features(
     subjects: pd.DataFrame,

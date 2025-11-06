@@ -57,7 +57,7 @@ def _request_with_retries(url: str, params: dict[str, Any], max_retries: int = 4
             try:
                 return r.json()
             except Exception as e:
-                raise RuntimeError(f"Unexpected non-JSON response: {e}\nText: {r.text[:300]}")
+                raise RuntimeError(f"Unexpected non-JSON response: {e}\nText: {r.text[:300]}") from e
 
         # other error
         if attempt == max_retries:

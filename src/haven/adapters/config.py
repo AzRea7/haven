@@ -39,8 +39,8 @@ class AppConfig(BaseSettings):
             v = v.strip().replace("%", "")
         try:
             f = float(v)
-        except Exception:
-            raise ValueError("rate must be numeric or percent-like")
+        except Exception as err:
+            raise ValueError("rate must be numeric or percent-like") from err
         if f > 1.0:
             f = f / 100.0
         if f < 0:

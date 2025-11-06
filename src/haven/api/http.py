@@ -24,7 +24,7 @@ def analyze_endpoint2(payload: AnalyzeRequest):
     try:
         return analyze_deal(payload.model_dump(), rent_estimator=_default_estimator, repo=_repo)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 @app.get("/deals", response_model=list[dict])
 def list_deals(limit: int = 50):

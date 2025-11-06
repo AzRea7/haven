@@ -4,8 +4,12 @@ from sklearn.calibration import calibration_curve
 from sklearn.metrics import average_precision_score, precision_recall_curve
 
 
-def mape(y, yhat): y = np.maximum(y, 1.0); return np.mean(np.abs(yhat - y) / y)
-def mae(y, yhat):  return float(np.mean(np.abs(yhat - y)))
+def mape(y, yhat):
+    y = np.maximum(y, 1.0)
+    return np.mean(np.abs(yhat - y) / y)
+
+def mae(y, yhat):
+    return float(np.mean(np.abs(yhat - y)))
 
 def eval_arv_by_time_zip(df: pd.DataFrame, date_col="sold_date", zip_col="zip"):
     df = df.copy().dropna(subset=["sold_price","q50"])
