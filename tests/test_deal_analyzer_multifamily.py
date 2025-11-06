@@ -1,5 +1,6 @@
 from haven.services.deal_analyzer import analyze_deal_with_defaults
 
+
 def test_multifamily_end_to_end():
     payload = {
         "property_type": "apartment_complex",

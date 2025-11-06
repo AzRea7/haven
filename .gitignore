@@ -34,3 +34,36 @@ requirements.txt
 *.ipynb_checkpoints
 *.log
 *.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.log
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Virtual env
+.venv/
+env/
+venv/
+*.env
+
+# Build/artifacts
+dist/
+build/
+mlruns/
+models/
+docs/
+notebooks/
+data/
+
+# OS/Editor
+.DS_Store
+.idea/
+.vscode/
+
+# Jupyter runtime (never commit)
+.ipynb_checkpoints/

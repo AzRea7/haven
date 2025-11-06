@@ -1,6 +1,6 @@
-from typing import Dict, Union
 
-def score_deal(finance: Dict[str, float]) -> Dict[str, Union[str, float, bool]]:
+
+def score_deal(finance: dict[str, float]) -> dict[str, str | float | bool]:
     """
     Convert finance metrics into a recommendation.
     """

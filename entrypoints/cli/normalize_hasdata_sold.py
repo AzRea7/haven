@@ -1,6 +1,8 @@
 import argparse
+
 from haven.adapters.storage import read_df, write_df
 from haven.services.features import normalize_sold
+
 
 def main():
     ap = argparse.ArgumentParser()

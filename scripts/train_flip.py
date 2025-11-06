@@ -1,10 +1,14 @@
-import os, joblib, pandas as pd, numpy as np
+import os
+
+import joblib
+import numpy as np
+import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import average_precision_score, brier_score_loss
+from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import average_precision_score, brier_score_loss
 
 INP = "data/curated/properties.parquet"
 LABEL = "flip_success"

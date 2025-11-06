@@ -1,25 +1,28 @@
 from __future__ import annotations
-from typing import Any, Dict, Optional, List
-from sqlmodel import SQLModel, Field, create_engine, Session, select, Column, JSON
+
 from datetime import datetime
+from typing import Any
+
+from sqlmodel import JSON, Column, Field, Session, SQLModel, create_engine, select
+
 
 class DealRow(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     ts: datetime = Field(default_factory=datetime.utcnow, index=True)
     address: str
     city: str
     state: str
     zipcode: str
     property_type: str
-    payload: Dict[str, Any] = Field(sa_column=Column(JSON))   # request
-    result: Dict[str, Any]  = Field(sa_column=Column(JSON))   # analysis out
+    payload: dict[str, Any] = Field(sa_column=Column(JSON))   # request
+    result: dict[str, Any]  = Field(sa_column=Column(JSON))   # analysis out
 
 class SqlDealRepository:
     def __init__(self, uri: str = "sqlite:///haven.db"):
         self.engine = create_engine(uri, echo=False)
         SQLModel.metadata.create_all(self.engine)
 
-    def save_analysis(self, analysis: Dict[str, Any], request_payload: Dict[str, Any]) -> int:
+    def save_analysis(self, analysis: dict[str, Any], request_payload: dict[str, Any]) -> int:
         addr = analysis.get("address", {})
         row = DealRow(
             address=addr.get("address",""),
@@ -36,11 +39,11 @@ class SqlDealRepository:
             s.refresh(row)
             return row.id
 
-    def get(self, deal_id: int) -> Optional[DealRow]:
+    def get(self, deal_id: int) -> DealRow | None:
         with Session(self.engine) as s:
             return s.get(DealRow, deal_id)
 
-    def list_recent(self, limit: int = 50) -> List[DealRow]:
+    def list_recent(self, limit: int = 50) -> list[DealRow]:
         with Session(self.engine) as s:
             stmt = select(DealRow).order_by(DealRow.ts.desc()).limit(limit)
             return list(s.exec(stmt))

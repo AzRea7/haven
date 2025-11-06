@@ -1,6 +1,7 @@
 # src/haven/domain/assumptions.py
 from pydantic import BaseModel
 
+
 class UnderwritingAssumptions(BaseModel):
     vacancy_rate: float
     maintenance_rate: float

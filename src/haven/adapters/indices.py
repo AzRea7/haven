@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 import pandas as pd
+
 
 def compute_zip_momentum(zhvi_df: pd.DataFrame, zori_df: pd.DataFrame) -> pd.DataFrame:
     """

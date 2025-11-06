@@ -1,4 +1,5 @@
-from typing import Protocol, Dict, Any
+from typing import Any, Protocol
+
 
 class RentEstimator(Protocol):
     def predict_unit_rent(
@@ -12,5 +13,5 @@ class RentEstimator(Protocol):
         ...
 
 class DealRepository(Protocol):
-    def save_analysis(self, analysis: Dict[str, Any]) -> None:
+    def save_analysis(self, analysis: dict[str, Any]) -> None:
         ...

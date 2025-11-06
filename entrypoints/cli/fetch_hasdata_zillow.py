@@ -1,5 +1,8 @@
 import argparse
+
 from haven.adapters.zillow_hasdata import fetch_zillow_dump
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--type", choices=["sold","forSale"], required=True)
