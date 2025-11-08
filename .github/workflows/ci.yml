@@ -77,15 +77,16 @@ jobs:
       IMAGE_NAME: haven-api
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
+
       - uses: docker/setup-buildx-action@v3
 
-      # Compute lowercase owner + final image path and export to later steps
+      # Compute lowercase owner + final image path and export for later steps
       - name: Compute image coordinates (lowercase owner)
         shell: bash
         run: |
-          echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
-          echo "GHCR_IMAGE=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_NAME}" >> "$GITHUB_ENV"
+          OWNER_LC="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "OWNER_LC=${OWNER_LC}" >> "$GITHUB_ENV"
+          echo "GHCR_IMAGE=${REGISTRY}/${OWNER_LC}/${IMAGE_NAME}" >> "$GITHUB_ENV"
 
       - name: Debug image path (optional)
         run: |
@@ -95,18 +96,19 @@ jobs:
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # PRs: build and load locally (no push) to avoid "No output specified" warning
-      - name: Build (PRs) — load locally
+      # PRs: build and load locally (no push)
+      - name: Build (PRs) - load locally
         if: github.event_name == 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           load: true
+          platforms: linux/amd64
           tags: |
             ${{ env.GHCR_IMAGE }}:sha-${{ github.sha }}
           cache-from: type=gha
@@ -120,9 +122,10 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          platforms: linux/amd64
           tags: |
             ${{ env.GHCR_IMAGE }}:sha-${{ github.sha }}
             ${{ env.GHCR_IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # provenance: false  # uncomment if your builder complains about attestations
+          # provenance: false  # uncomment if attestations cause issues
