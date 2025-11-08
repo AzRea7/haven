@@ -1,0 +1,16 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.0
+
+pydantic==2.8.2
+pydantic-settings==2.3.4
+python-dotenv==1.0.1
+
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.2
+xgboost==2.1.2
+lightgbm==4.5.0
+
+sqlalchemy==2.0.36
+sqlmodel==0.0.22
+requests==2.32.3
