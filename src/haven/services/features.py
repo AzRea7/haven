@@ -1,6 +1,8 @@
 # src/haven/services/features.py
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import numpy as np
 import pandas as pd
 
@@ -35,7 +37,7 @@ def attach_momentum(base: pd.DataFrame, zip_momentum: pd.DataFrame) -> pd.DataFr
     cols = [c for c in zip_momentum.columns if c != "date"]
     return base.merge(zip_momentum[cols], on="zip", how="left")
 
-def _normalize_rings(rings) -> tuple[float, ...]:
+def _normalize_rings(rings: Iterable[float | str] | None) -> tuple[float, ...]:
     if rings is None:
         return (0.5, 1.0, 1.5)
     out = []
@@ -48,8 +50,11 @@ def _normalize_rings(rings) -> tuple[float, ...]:
     # ensure sorted unique
     return tuple(sorted(set(out)))
 
-def attach_ring_features(subjects: pd.DataFrame, comps: pd.DataFrame,
-                         rings=("050","100","150")) -> pd.DataFrame:
+def attach_ring_features(
+    subjects: pd.DataFrame,
+    comps: pd.DataFrame,
+    rings: Iterable[float | str] = ("050", "100", "150"),
+) -> pd.DataFrame:
     """
     subjects: rows to train/score (must have lat/lon)
     comps: universe with columns used by adapters.geo.compute_ring_features

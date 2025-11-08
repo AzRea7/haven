@@ -14,6 +14,7 @@ from haven.services.validation import validate_and_prepare_payload
 
 logger = get_logger(__name__)
 
+
 def _fill_missing_rents(prop: Property, rent_estimator: RentEstimator) -> Property:
     # Fill per-unit rents if not provided
     if prop.units:
@@ -39,12 +40,12 @@ def _fill_missing_rents(prop: Property, rent_estimator: RentEstimator) -> Proper
 
     return prop
 
+
 def analyze_deal(
     raw_payload: dict[str, Any],
     rent_estimator: RentEstimator,
     repo: DealRepository | None = None,
 ) -> dict[str, Any]:
-
     # 1. Clean/normalize data
     payload = validate_and_prepare_payload(raw_payload)
 
@@ -77,7 +78,7 @@ def analyze_deal(
     # 7. Score deal
     score = score_deal(finance)
 
-    result = {
+    result: dict[str, Any] = {
         "address": {
             "address": prop.address,
             "city": prop.city,
@@ -93,7 +94,7 @@ def analyze_deal(
     logger.info("deal_analyzed", extra={"context": result})
 
     # 8. Persist
-    deal_id = None
+    deal_id: int | None = None
     if repo is not None:
         deal_id = repo.save_analysis(result, raw_payload)
 
@@ -101,9 +102,11 @@ def analyze_deal(
         result["deal_id"] = deal_id
     return result
 
+
 # convenient defaults
-_default_repo = SqlDealRepository(uri="sqlite:///haven.db")
-_default_estimator = LightGBMRentEstimator()
+_default_repo: DealRepository = SqlDealRepository(uri="sqlite:///haven.db")
+_default_estimator: RentEstimator = LightGBMRentEstimator()
+
 
 def analyze_deal_with_defaults(raw_payload: dict[str, Any]) -> dict[str, Any]:
     return analyze_deal(

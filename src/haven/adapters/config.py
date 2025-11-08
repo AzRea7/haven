@@ -1,5 +1,24 @@
+import os
+from typing import Any
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def get_env_str(key: str, default: str | None = None) -> str | None:
+    return os.getenv(key, default)
+
+
+def get_env_int(key: str, default: int | None = None) -> int | None:
+    v = os.getenv(key)
+    return int(v) if v is not None else default
+
+
+def get_env_bool(key: str, default: bool = False) -> bool:
+    v = os.getenv(key)
+    if v is None:
+        return default
+    return v.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 class AppConfig(BaseSettings):
@@ -27,11 +46,15 @@ class AppConfig(BaseSettings):
     )
 
     @field_validator(
-        "VACANCY_RATE", "MAINTENANCE_RATE", "PROPERTY_MGMT_RATE", "CAPEX_RATE",
-        "DEFAULT_CLOSING_COST_PCT", mode="before"
+        "VACANCY_RATE",
+        "MAINTENANCE_RATE",
+        "PROPERTY_MGMT_RATE",
+        "CAPEX_RATE",
+        "DEFAULT_CLOSING_COST_PCT",
+        mode="before",
     )
     @classmethod
-    def _to_non_negative_fraction(cls, v):
+    def _to_non_negative_fraction(cls, v: Any) -> Any:
         # accept strings like "8%" or "0.08" or numbers; normalize to fraction
         if v is None:
             return v
@@ -39,8 +62,8 @@ class AppConfig(BaseSettings):
             v = v.strip().replace("%", "")
         try:
             f = float(v)
-        except Exception:
-            raise ValueError("rate must be numeric or percent-like")
+        except Exception as err:
+            raise ValueError("rate must be numeric or percent-like") from err
         if f > 1.0:
             f = f / 100.0
         if f < 0:
@@ -49,10 +72,11 @@ class AppConfig(BaseSettings):
 
     @field_validator("MIN_DSCR_GOOD", mode="before")
     @classmethod
-    def _dscr_positive(cls, v):
+    def _dscr_positive(cls, v: Any) -> Any:
         f = float(v)
         if f <= 0:
             raise ValueError("MIN_DSCR_GOOD must be > 0")
         return f
+
 
 config = AppConfig()

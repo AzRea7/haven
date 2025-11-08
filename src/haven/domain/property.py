@@ -41,7 +41,7 @@ class Property(BaseModel):
     est_market_rent: float | None = None
 
     @validator("down_payment_pct")
-    def _pct_range(cls, v):
+    def _pct_range(cls, v: float) -> float:
         if not (0.0 <= v <= 1.0):
             raise ValueError("down_payment_pct must be between 0 and 1")
         return v
