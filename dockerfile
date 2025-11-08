@@ -1,4 +1,8 @@
-# --- Builder: install deps, build wheels ---
+# syntax=docker/dockerfile:1.6
+
+########################
+# Builder: deps -> wheels
+########################
 FROM python:3.10-slim AS builder
 
 WORKDIR /app
@@ -6,49 +10,48 @@ ENV PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# System deps if you later add geo/ML libs; keep minimal for now
+# Minimal system deps; extend only if really needed
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential gcc git && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy metadata first for better layer caching
-COPY pyproject.toml ./pyproject.toml
-COPY requirements.txt ./requirements.txt
+# Use the lean runtime requirements (NOT the giant dev one)
+COPY requirements.api.txt .
 
-# Build wheels for all Python deps
-RUN pip wheel --wheel-dir=/wheels -r requirements.txt
+# Build wheels for all runtime deps (cached)
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
+    pip wheel --wheel-dir=/wheels -r requirements.api.txt
 
-# Copy source
-COPY src ./src
+# (Optional) if you ever need build-time code, copy it here
+# COPY src ./src
 
-# --- Runtime: slim image with only what we need ---
+########################
+# Runtime: slim + only what we need
+########################
 FROM python:3.10-slim AS runtime
 
 WORKDIR /app
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/src
 
-# Non-root user (safer in prod)
+# Non-root user
 RUN useradd -ms /bin/bash appuser
 USER appuser
 
-# Bring wheels from builder and install
+# Install deps from prebuilt wheels
 COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir /wheels/*
 
 # App code
 COPY --chown=appuser:appuser src ./src
-ENV PYTHONPATH=/app/src
 
-# Entrypoint
-# ensure the target dir exists
+# Entrypoint setup
 RUN mkdir -p /entrypoints
-
-# copy the script and set owner/permissions in one go
 COPY --chown=appuser:appuser --chmod=755 entrypoints/start.sh /entrypoints/start.sh
 
-# optional but nice: set entrypoint now (or keep CMD elsewhere)
-ENTRYPOINT ["/entrypoints/start.sh"]
-
-
 EXPOSE 8000
-CMD ["/entrypoints/start.sh"]
+
+# Single source of truth: start script
+ENTRYPOINT ["/entrypoints/start.sh"]

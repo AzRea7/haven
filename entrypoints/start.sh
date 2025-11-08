@@ -11,4 +11,4 @@ echo "Starting Haven API..."
 # If your app is a module under src/, run it like:
 # exec python -m haven.api
 # or if you have a main entry point:
-exec python -m src.haven.api
+exec uvicorn haven.api:app --host 0.0.0.0 --port 8000
