@@ -1,4 +1,4 @@
-
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -32,3 +32,26 @@ class AnalyzeResponse(BaseModel):
     finance: dict
     pricing: dict
     score: dict
+
+class TopDealItem(BaseModel):
+    external_id: str = Field(..., description="Source listing ID")
+    source: str = Field(..., description="Listing source identifier")
+    address: str
+    city: str
+    state: str
+    zipcode: str
+
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+
+    list_price: float
+
+    dscr: float
+    cash_on_cash_return: float
+    breakeven_occupancy_pct: float
+
+    rank_score: float
+    label: str
+    reason: str
+
+    dom: Optional[float] = None
