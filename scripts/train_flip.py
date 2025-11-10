@@ -1,5 +1,5 @@
 import os
-
+import time
 import joblib
 import numpy as np
 import pandas as pd
@@ -10,31 +10,115 @@ from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from joblib import Parallel, delayed
+
 INP = "data/curated/properties.parquet"
 LABEL = "flip_success"
 
+# === Load data ===
 df = pd.read_parquet(INP)
 if LABEL not in df.columns:
     raise SystemExit("Add a binary 'flip_success' label to train flip classifier.")
 
 y = df[LABEL].astype(int)
-X = df[[c for c in df.columns if c not in ["id","address",LABEL,"sale_price_after_rehab"]]]
+
+X = df[
+    [
+        c
+        for c in df.columns
+        if c not in [
+            "id",
+            "address",
+            LABEL,
+            "sale_price_after_rehab",
+        ]
+    ]
+]
 
 tscv = TimeSeriesSplit(n_splits=5)
-aps, briers = [], []
-for tr, te in tscv.split(X):
-    base = Pipeline([
-        ("sc", StandardScaler(with_mean=False)),
-        ("lr", LogisticRegression(max_iter=3000, C=1.0, penalty="l2"))
-    ])
-    clf = CalibratedClassifierCV(base, method="isotonic", cv=3)
-    clf.fit(X.iloc[tr], y.iloc[tr])
-    p = clf.predict_proba(X.iloc[te])[:,1]
-    aps.append(average_precision_score(y.iloc[te], p))
-    briers.append(brier_score_loss(y.iloc[te], p))
+
+# === Define per-fold training function (for Parallel) ===
+def fit_and_eval_fold(tr_idx, te_idx):
+    """
+    Train calibrated logistic model on one fold and return metrics.
+    Runs independently, so it's safe to parallelize across folds.
+    """
+    base = Pipeline(
+        [
+            ("sc", StandardScaler(with_mean=False)),
+            (
+                "lr",
+                LogisticRegression(
+                    max_iter=3000,
+                    C=1.0,
+                    penalty="l2",
+                    n_jobs=-1,  # parallelize solver across CPU cores
+                ),
+            ),
+        ]
+    )
+
+    clf = CalibratedClassifierCV(
+        base,
+        method="isotonic",
+        cv=3,
+    )
+
+    X_tr, y_tr = X.iloc[tr_idx], y.iloc[tr_idx]
+    X_te, y_te = X.iloc[te_idx], y.iloc[te_idx]
+
+    clf.fit(X_tr, y_tr)
+    p = clf.predict_proba(X_te)[:, 1]
+
+    ap = average_precision_score(y_te, p)
+    brier = brier_score_loss(y_te, p)
+    return ap, brier
+
+
+# === Parallel cross-validation over folds ===
+cv_start = time.perf_counter()
+
+results = Parallel(n_jobs=-1)(
+    delayed(fit_and_eval_fold)(tr_idx, te_idx)
+    for tr_idx, te_idx in tscv.split(X)
+)
+
+cv_time = time.perf_counter() - cv_start
+
+aps = [r[0] for r in results]
+briers = [r[1] for r in results]
 
 print(f"PR-AUC: {np.mean(aps):.3f} | Brier: {np.mean(briers):.3f}")
+print(f"CV training time (parallel folds + threaded LR): {cv_time:.2f}s")
+
+# === Final model fit on all data (same structure) ===
+base = Pipeline(
+    [
+        ("sc", StandardScaler(with_mean=False)),
+        (
+            "lr",
+            LogisticRegression(
+                max_iter=3000,
+                C=1.0,
+                penalty="l2",
+                n_jobs=-1,
+            ),
+        ),
+    ]
+)
+
+final_clf = CalibratedClassifierCV(
+    base,
+    method="isotonic",
+    cv=3,
+)
+
+train_start = time.perf_counter()
+final_clf.fit(X, y)
+train_time = time.perf_counter() - train_start
+
 os.makedirs("models", exist_ok=True)
-clf.fit(X, y)
-joblib.dump(clf, "models/flip_logit_calibrated.joblib")
+joblib.dump(final_clf, "models/flip_logit_calibrated.joblib")
+
 print("saved models/flip_logit_calibrated.joblib")
+print(f"Full-data fit time: {train_time:.2f}s")
