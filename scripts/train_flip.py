@@ -1,125 +1,117 @@
-import os
-import time
+# scripts/train_flip.py
+"""
+Train a calibrated flip classifier from curated deal history.
+
+Expected input:
+  data/curated/flip_training.parquet with columns:
+    - is_good: 1 if outcome was acceptable (profit/return threshold hit)
+    - numeric features used for screening/scoring
+
+Outputs:
+  models/flip_logit_calibrated.joblib
+
+This is intentionally simple & explainable:
+  - StandardScaler + LogisticRegression
+  - Calibrated via cross-validation (sigmoid)
+"""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
 import joblib
 import numpy as np
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import average_precision_score, brier_score_loss
-from sklearn.model_selection import TimeSeriesSplit
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from joblib import Parallel, delayed
-
-INP = "data/curated/properties.parquet"
-LABEL = "flip_success"
-
-# === Load data ===
-df = pd.read_parquet(INP)
-if LABEL not in df.columns:
-    raise SystemExit("Add a binary 'flip_success' label to train flip classifier.")
-
-y = df[LABEL].astype(int)
-
-# Sanity: ensure both classes exist
-if y.nunique() < 2:
-    raise SystemExit("flip_success has only one class; adjust label construction.")
-
-# Drop obvious non-features; then keep only numeric columns
-drop_cols = [
-    "id",
-    "address",
-    LABEL,
-    "sale_price_after_rehab",
-    "property_type",
-]
-
-X = df.drop(columns=[c for c in drop_cols if c in df.columns], errors="ignore")
-X = X.select_dtypes(include=[np.number])
-
-if X.empty:
-    raise SystemExit("No numeric feature columns available for training.")
-
-tscv = TimeSeriesSplit(n_splits=5)
 
 
-def fit_and_eval_fold(tr_idx, te_idx):
+DEFAULT_INPUT = Path("data/curated/flip_training.parquet")
+DEFAULT_OUTPUT = Path("models/flip_logit_calibrated.joblib")
+
+
+def load_data(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Training data not found at {path}. "
+            "You must build data/curated/flip_training.parquet from your historical deals."
+        )
+    df = pd.read_parquet(path)
+    if "is_good" not in df.columns:
+        raise ValueError("flip_training dataset must contain 'is_good' column.")
+    return df
+
+
+def select_features(df: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray, list[str]]:
+    y = df["is_good"].astype(int).to_numpy()
+
+    # Heuristic: use all numeric columns except target.
+    numeric_cols = [
+        c
+        for c in df.columns
+        if c != "is_good" and pd.api.types.is_numeric_dtype(df[c])
+    ]
+    if not numeric_cols:
+        raise ValueError("No numeric feature columns found for flip model.")
+
+    X = df[numeric_cols].fillna(0.0)
+
+    return X, y, numeric_cols
+
+
+def train_model(X: pd.DataFrame, y: np.ndarray) -> CalibratedClassifierCV:
     base = Pipeline(
-        [
-            ("sc", StandardScaler(with_mean=False)),
-            (
-                "lr",
-                LogisticRegression(
-                    max_iter=3000,
-                    C=1.0,
-                    penalty="l2",
-                    n_jobs=-1,
-                ),
-            ),
+        steps=[
+            ("scaler", StandardScaler()),
+            ("logit", LogisticRegression(max_iter=1000)),
         ]
     )
+    clf = CalibratedClassifierCV(base_estimator=base, method="sigmoid", cv=5)
+    clf.fit(X, y)
+    return clf
 
-    clf = CalibratedClassifierCV(
-        base,
-        method="isotonic",
-        cv=3,
+
+def main(input_path: Path, output_path: Path) -> None:
+    df = load_data(input_path)
+    X, y, cols = select_features(df)
+
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
 
-    X_tr, y_tr = X.iloc[tr_idx], y.iloc[tr_idx]
-    X_te, y_te = X.iloc[te_idx], y.iloc[te_idx]
+    clf = train_model(X_train, y_train)
 
-    clf.fit(X_tr, y_tr)
-    p = clf.predict_proba(X_te)[:, 1]
+    # Evaluate
+    p_val = clf.predict_proba(X_val)[:, 1]
+    auc = roc_auc_score(y_val, p_val)
+    print(f"[flip] Validation AUC: {auc:.3f}")
 
-    ap = average_precision_score(y_te, p)
-    brier = brier_score_loss(y_te, p)
-    return ap, brier
+    # Attach feature names for deterministic inference
+    setattr(clf, "feature_names_in_", np.array(cols))
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(clf, output_path)
+    print(f"[flip] Saved model to {output_path}")
 
 
-# === Parallel cross-validation ===
-cv_start = time.perf_counter()
-
-results = Parallel(n_jobs=-1)(
-    delayed(fit_and_eval_fold)(tr_idx, te_idx)
-    for tr_idx, te_idx in tscv.split(X)
-)
-
-cv_time = time.perf_counter() - cv_start
-
-aps = [r[0] for r in results]
-briers = [r[1] for r in results]
-
-print(f"PR-AUC: {np.mean(aps):.3f} | Brier: {np.mean(briers):.3f}")
-print(f"CV training time (parallel): {cv_time:.2f}s")
-
-# === Final fit on all data ===
-base = Pipeline(
-    [
-        ("sc", StandardScaler(with_mean=False)),
-        (
-            "lr",
-            LogisticRegression(
-                max_iter=3000,
-                C=1.0,
-                penalty="l2",
-                n_jobs=-1,
-            ),
-        ),
-    ]
-)
-
-final_clf = CalibratedClassifierCV(
-    base,
-    method="isotonic",
-    cv=3,
-)
-
-train_start = time.perf_counter()
-final_clf.fit(X, y)
-train_time = time.perf_counter() - train_start
-
-os.makedirs("models", exist_ok=True)
-joblib.dump(final_clf, "models/flip_logit_calibrated.joblib")
-
-print("saved models/flip_logit_calibrated.joblib")
-print(f"Full-data fit time: {train_time:.2f}s")
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--input",
+        type=Path,
+        default=DEFAULT_INPUT,
+        help="Path to flip_training.parquet",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_OUTPUT,
+        help="Output model path",
+    )
+    args = parser.parse_args()
+    main(args.input, args.output)
