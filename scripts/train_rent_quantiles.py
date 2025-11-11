@@ -15,24 +15,28 @@ def main() -> None:
 
     df = pd.read_parquet(DATA_PATH)
 
+    # Columns we expect from build_features_parallel.py
     feature_cols = [
         "bedrooms",
         "bathrooms",
         "sqft",
         "zipcode_encoded",
         "property_type_encoded",
-        # include any other engineered features you use
     ]
+
+    missing = [c for c in feature_cols if c not in df.columns]
+    if missing:
+        raise SystemExit(f"Missing feature columns in rent_training: {missing}")
 
     if "rent" not in df.columns:
         raise SystemExit("Expected 'rent' column in rent_training.parquet")
 
-    X = df[feature_cols]
-    y = df["rent"]
+    # Ensure numeric dtypes for LightGBM
+    X = df[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    y = pd.to_numeric(df["rent"], errors="coerce").fillna(0.0)
 
     train_set = lgb.Dataset(X, label=y)
 
-    # Base params shared by all quantile models
     params_base = {
         "learning_rate": 0.05,
         "num_leaves": 31,
@@ -42,8 +46,7 @@ def main() -> None:
         "bagging_freq": 1,
         "verbose": -1,
         "max_depth": -1,
-        # Enable parallel tree building across CPU cores
-        "num_threads": -1,
+        "num_threads": -1,  # use all cores per model
     }
 
     def train_q(alpha: float):
@@ -52,13 +55,10 @@ def main() -> None:
             "objective": "quantile",
             "alpha": alpha,
         }
-        # Each call trains one quantile model
         return lgb.train(params, train_set, num_boost_round=400)
 
-    # Train three quantile models in parallel.
-    # n_jobs=3 here since we have 3 independent models; each still uses num_threads=-1 internally.
-    # For stricter measurements, you can set num_threads to a fixed value instead of -1.
     quantiles = [0.10, 0.50, 0.90]
+
     t_train_start = time.perf_counter()
     models_list = Parallel(n_jobs=3)(
         delayed(train_q)(alpha) for alpha in quantiles

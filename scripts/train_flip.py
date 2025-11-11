@@ -9,7 +9,6 @@ from sklearn.metrics import average_precision_score, brier_score_loss
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-
 from joblib import Parallel, delayed
 
 INP = "data/curated/properties.parquet"
@@ -22,27 +21,29 @@ if LABEL not in df.columns:
 
 y = df[LABEL].astype(int)
 
-X = df[
-    [
-        c
-        for c in df.columns
-        if c not in [
-            "id",
-            "address",
-            LABEL,
-            "sale_price_after_rehab",
-        ]
-    ]
+# Sanity: ensure both classes exist
+if y.nunique() < 2:
+    raise SystemExit("flip_success has only one class; adjust label construction.")
+
+# Drop obvious non-features; then keep only numeric columns
+drop_cols = [
+    "id",
+    "address",
+    LABEL,
+    "sale_price_after_rehab",
+    "property_type",
 ]
+
+X = df.drop(columns=[c for c in drop_cols if c in df.columns], errors="ignore")
+X = X.select_dtypes(include=[np.number])
+
+if X.empty:
+    raise SystemExit("No numeric feature columns available for training.")
 
 tscv = TimeSeriesSplit(n_splits=5)
 
-# === Define per-fold training function (for Parallel) ===
+
 def fit_and_eval_fold(tr_idx, te_idx):
-    """
-    Train calibrated logistic model on one fold and return metrics.
-    Runs independently, so it's safe to parallelize across folds.
-    """
     base = Pipeline(
         [
             ("sc", StandardScaler(with_mean=False)),
@@ -52,7 +53,7 @@ def fit_and_eval_fold(tr_idx, te_idx):
                     max_iter=3000,
                     C=1.0,
                     penalty="l2",
-                    n_jobs=-1,  # parallelize solver across CPU cores
+                    n_jobs=-1,
                 ),
             ),
         ]
@@ -75,7 +76,7 @@ def fit_and_eval_fold(tr_idx, te_idx):
     return ap, brier
 
 
-# === Parallel cross-validation over folds ===
+# === Parallel cross-validation ===
 cv_start = time.perf_counter()
 
 results = Parallel(n_jobs=-1)(
@@ -89,9 +90,9 @@ aps = [r[0] for r in results]
 briers = [r[1] for r in results]
 
 print(f"PR-AUC: {np.mean(aps):.3f} | Brier: {np.mean(briers):.3f}")
-print(f"CV training time (parallel folds + threaded LR): {cv_time:.2f}s")
+print(f"CV training time (parallel): {cv_time:.2f}s")
 
-# === Final model fit on all data (same structure) ===
+# === Final fit on all data ===
 base = Pipeline(
     [
         ("sc", StandardScaler(with_mean=False)),
