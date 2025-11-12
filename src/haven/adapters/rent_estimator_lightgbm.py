@@ -1,70 +1,158 @@
-# src/haven/adapters/rent_estimator_lightgbm.py
 from __future__ import annotations
 
-from haven.adapters.logging_utils import get_logger
+import os
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
-logger = get_logger(__name__)
+import joblib
+import numpy as np
+import pandas as pd
+
+try:
+    import lightgbm as lgb
+except ImportError:  # pragma: no cover - for environments without LightGBM
+    lgb = None  # type: ignore[assignment]
+
+
+# Fixed feature order used by both training & prediction
+RENT_FEATURE_COLUMNS: List[str] = [
+    "bedrooms",
+    "bathrooms",
+    "sqft",
+    "zipcode_encoded",
+    "property_type_encoded",
+]
+
+
+@dataclass
+class _Artifacts:
+    model: Any
+    scaler: Any
 
 
 class LightGBMRentEstimator:
     """
-    Deterministic rent heuristic used by the pipeline.
+    Rent estimator.
 
-    - Keeps interface compatible with a future ML model.
-    - Avoids sklearn transformers to eliminate 'feature names' warnings.
-    - Monotonic in beds/baths/sqft so scoring behaves sensibly.
+    - If model/scaler artifacts are available, uses them.
+    - Otherwise falls back to a reasonably sane heuristic based on sqft, beds, baths.
     """
 
-    def __init__(self, *_, **__):
-        # If you later load a real model, set is_ready=True and gate logic.
-        self.is_ready = False
+    def __init__(
+        self,
+        model_path: Optional[str] = None,
+        scaler_path: Optional[str] = None,
+    ) -> None:
+        # Default locations (override these or wire via config if needed)
+        self._model_path = model_path or "artifacts/rent_model.lgb"
+        self._scaler_path = scaler_path or "artifacts/rent_scaler.pkl"
+
+        self._artifacts: Optional[_Artifacts] = None
+        self._load_artifacts_if_available()
+
+    # -------------------------------------------------------------------------
+    # Artifact loading
+    # -------------------------------------------------------------------------
+
+    def _load_artifacts_if_available(self) -> None:
+        if not (os.path.exists(self._model_path) and os.path.exists(self._scaler_path)):
+            # No artifacts – we will use heuristics
+            self._artifacts = None
+            return
+
+        if lgb is None:
+            # LightGBM not installed – also fall back to heuristics
+            self._artifacts = None
+            return
+
+        model = lgb.Booster(model_file=self._model_path)
+        scaler = joblib.load(self._scaler_path)
+
+        self._artifacts = _Artifacts(model=model, scaler=scaler)
+
+    # -------------------------------------------------------------------------
+    # Encoding helpers
+    # -------------------------------------------------------------------------
+
+    def _encode_zip(self, zipcode: str) -> float:
+        """
+        Simple numeric encoding of ZIP.
+        You can replace this with a proper mapping if you already have one.
+        """
+        zipcode = (zipcode or "").strip()
+        if not zipcode.isdigit():
+            return 0.0
+        return float(int(zipcode))
+
+    def _encode_property_type(self, property_type: str) -> float:
+        """
+        Simple categorical encoding.
+        Replace with your own mapping if you already have one in training.
+        """
+        pt = (property_type or "").lower().strip()
+        mapping = {
+            "single_family": 1.0,
+            "condo": 2.0,
+            "condo_townhome": 2.0,
+            "townhome": 2.0,
+            "apartment": 3.0,
+            "apartment_complex": 3.0,
+            "multi_family": 4.0,
+        }
+        return mapping.get(pt, 0.0)
+
+    # -------------------------------------------------------------------------
+    # Public API
+    # -------------------------------------------------------------------------
 
     def predict_unit_rent(
         self,
+        *,
         bedrooms: float,
         bathrooms: float,
         sqft: float,
         zipcode: str,
         property_type: str,
     ) -> float:
-        b = max(float(bedrooms or 0.0), 0.0)
-        ba = max(float(bathrooms or 0.0), 0.0)
-        s = max(float(sqft or 0.0), 0.0)
+        """
+        Main entrypoint.
 
-        # Local zip anchors (tune these as you gather data)
-        base = 900.0
-        if zipcode == "48009":
-            base = 1600.0
-        elif zipcode.startswith("48"):
-            base = 1300.0
+        If LightGBM artifacts are available:
+          - Build a DataFrame with fixed columns.
+          - Apply scaler.
+          - Get model prediction.
 
-        # Property type nudges
-        if property_type in ("apartment_complex", "multifamily_5plus"):
-            base *= 0.92
-        elif property_type in ("condo_townhome",):
-            base *= 0.97
+        Otherwise:
+          - Use a rule-of-thumb heuristic that scales with sqft, beds, baths, and zip.
+        """
+        beds = float(bedrooms or 0.0)
+        baths = float(bathrooms or 0.0)
+        size = float(sqft or 0.0)
+        zip_str = str(zipcode or "")
+        pt_str = str(property_type or "single_family")
 
-        # Feature contributions (simple, monotonic, interpretable)
-        bed_bonus = 250.0 * b
-        bath_bonus = 175.0 * max(ba - 1.0, 0.0)
-        size_bonus = 0.40 * max(s - 650.0, 0.0)  # $/sqft for area over studio size
+        zip_enc = self._encode_zip(zip_str)
+        pt_enc = self._encode_property_type(pt_str)
 
-        est = base + bed_bonus + bath_bonus + size_bonus
+        if self._artifacts is None:
+            # Heuristic fallback – deliberately simple but not totally dumb.
+            base_per_sqft = 1.2  # ~ $1.20/sqft
+            beds_bonus = 150.0 * beds
+            baths_bonus = 100.0 * baths
 
-        # Sanity clamp
-        est = float(max(500.0, min(est, 12000.0)))
+            # Very crude metro adjustment based on first 3 digits of ZIP
+            metro_factor = 1.0
+            if zip_str.startswith("48"):
+                metro_factor = 1.1  # SE Michigan-ish boost
 
-        logger.info(
-            "predict_unit_rent",
-            extra={
-                "context": {
-                    "bedrooms": b,
-                    "bathrooms": ba,
-                    "sqft": s,
-                    "zipcode": zipcode,
-                    "property_type": property_type,
-                    "predicted_rent": est,
-                }
-            },
-        )
-        return est
+            rent = (size * base_per_sqft + beds_bonus + baths_bonus) * metro_factor
+            return float(max(rent, 0.0))
+
+        # Proper model path
+        arr = [[beds, baths, size, zip_enc, pt_enc]]
+        df = pd.DataFrame(arr, columns=RENT_FEATURE_COLUMNS)
+
+        X_scaled = self._artifacts.scaler.transform(df)
+        # LightGBM Booster expects numpy array
+        pred = self._artifacts.model.predict(X_scaled)[0]
+        return float(max(pred, 0.0))

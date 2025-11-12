@@ -62,9 +62,12 @@ def _get_any_zip(repo: SqlPropertyRepository) -> str | None:
         return row if row else None
 
 
-def eval_sample_from_db(limit_per_zip: int = 50) -> None:
+def eval_sample_from_db(limit_per_zip: int = 50, max_price: float | None = 800_000.0) -> None:
     """
     Pull real properties from haven.db and inspect label/score distribution.
+
+    We also filter to a max_price (default 800k) so we focus on plausible rentals
+    instead of ultra-luxury owner-occupant stock.
     """
     repo = SqlPropertyRepository(uri=DB_URI)
     zipcode = _get_any_zip(repo)
@@ -73,15 +76,22 @@ def eval_sample_from_db(limit_per_zip: int = 50) -> None:
         print("No properties found in DB. Run an ingest script first (e.g. ingest_properties_parallel).")
         return
 
-    props = repo.search(zipcode=zipcode, limit=limit_per_zip)
+    search_kwargs = {
+        "zipcode": zipcode,
+        "limit": limit_per_zip,
+    }
+    if max_price is not None:
+        search_kwargs["max_price"] = max_price
+
+    props = repo.search(**search_kwargs)
     if not props:
-        print(f"No properties returned for zipcode={zipcode}.")
+        print(f"No properties returned for zipcode={zipcode} under max_price={max_price}.")
         return
 
     labels = Counter()
     scores: list[float] = []
 
-    print(f"=== Evaluating up to {len(props)} properties from DB (zip={zipcode}) ===")
+    print(f"=== Evaluating up to {len(props)} properties from DB (zip={zipcode}, max_price={max_price}) ===")
     for p in props:
         payload = {
             "address": p.get("address"),
@@ -117,7 +127,7 @@ def eval_sample_from_db(limit_per_zip: int = 50) -> None:
 
 def main() -> None:
     eval_monotonicity()
-    eval_sample_from_db(limit_per_zip=100)
+    eval_sample_from_db(limit_per_zip=100, max_price=800_000.0)
 
 
 if __name__ == "__main__":
