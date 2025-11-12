@@ -31,7 +31,8 @@ def _fill_missing_rents(prop: Property, rent_estimator: RentEstimator) -> Proper
     Ensure rents are populated:
 
     - For multi-unit deals: fill missing unit.market_rent using the rent_estimator.
-    - For single-door deals: if est_market_rent is missing, estimate a generic rent.
+    - For single-door deals: if est_market_rent is missing, estimate based on whatever
+      attributes are available on the Property (sqft, beds, baths if present).
     """
     # Multi-unit: per-unit inference
     if prop.units:
@@ -45,12 +46,16 @@ def _fill_missing_rents(prop: Property, rent_estimator: RentEstimator) -> Proper
                     property_type=prop.property_type,
                 )
 
-    # Single-door fallback: coarse estimate if nothing provided
+    # Single-door: property-level inference
     if not prop.units and prop.est_market_rent is None:
+        bedrooms = getattr(prop, "bedrooms", 0.0) or 0.0
+        bathrooms = getattr(prop, "bathrooms", 0.0) or 0.0
+        sqft = getattr(prop, "sqft", 0.0) or 0.0
+
         prop.est_market_rent = rent_estimator.predict_unit_rent(
-            bedrooms=0.0,
-            bathrooms=0.0,
-            sqft=0.0,
+            bedrooms=bedrooms,
+            bathrooms=bathrooms,
+            sqft=sqft,
             zipcode=prop.zipcode,
             property_type=prop.property_type,
         )
