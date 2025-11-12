@@ -8,13 +8,16 @@ src/haven.egg-info/requires.txt
 src/haven.egg-info/top_level.txt
 src/haven/adapters/__Init__.py
 src/haven/adapters/__init__.py
+src/haven/adapters/arv_quantile_bundle.py
 src/haven/adapters/config.py
+src/haven/adapters/flip_classifier.py
 src/haven/adapters/geo.py
 src/haven/adapters/indices.py
 src/haven/adapters/logging_utils.py
 src/haven/adapters/memory_repo.py
 src/haven/adapters/model_io.py
 src/haven/adapters/rent_estimator_lightgbm.py
+src/haven/adapters/rent_quantile_bundle.py
 src/haven/adapters/sql_repo.py
 src/haven/adapters/storage.py
 src/haven/adapters/zillow_hasdata.py
@@ -41,6 +44,9 @@ src/haven/services/validation.py
 tests/test_api_analyze_success.py
 tests/test_api_missing_required_fields.py
 tests/test_api_percent_and_string_inputs.py
+tests/test_deal_analyzer_basic.py
 tests/test_deal_analyzer_multifamily.py
+tests/test_deal_analyzer_scoring_order.py
 tests/test_finance_single_family.py
+tests/test_flip_classifier_integration.py
 tests/test_geo_features.py
