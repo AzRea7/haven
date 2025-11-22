@@ -1,4 +1,3 @@
-# src/haven/adapters/sql_repo.py
 from __future__ import annotations
 
 from datetime import datetime
@@ -74,7 +73,7 @@ class SqlDealRepository(DealRepository):
             return list(session.exec(stmt))
 
 
-# ---------- Property storage (new) ----------
+# ---------- Property storage ----------
 
 
 class PropertyRow(SQLModel, table=True):

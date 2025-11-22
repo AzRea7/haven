@@ -1,5 +1,3 @@
-# src/haven/api/http.py
-
 from collections.abc import Sequence
 from typing import Any, Dict
 
@@ -8,36 +6,32 @@ from fastapi import FastAPI, HTTPException, Query
 from haven.adapters.config import config
 from haven.adapters.rent_estimator_lightgbm import LightGBMRentEstimator
 from haven.adapters.sql_repo import SqlDealRepository, SqlPropertyRepository, DealRow
-from haven.analysis.finance import analyze_property_financials
-from haven.analysis.scoring import score_property
+from haven.analysis.scoring import score_property  # still used elsewhere if needed
 from haven.domain.assumptions import UnderwritingAssumptions
 from haven.domain.ports import DealRepository, PropertyRepository
 from haven.domain.property import Property
-from haven.services.deal_analyzer import analyze_deal_with_defaults
+from haven.services.deal_analyzer import (
+    analyze_deal_with_defaults,
+    analyze_deal,
+)
 from haven.adapters.rent_quantile_bundle import predict_rent_quantiles
 from haven.adapters.arv_quantile_bundle import predict_arv_quantiles
 from .schemas import AnalyzeRequest, AnalyzeResponse, TopDealItem
 
 app = FastAPI()
 
-# --------------------------------------------------------------------------
-# Screening defaults for /top-deals
-# --------------------------------------------------------------------------
 
-DEFAULT_DOWN_PAYMENT_PCT = 0.25        # 25% down
-DEFAULT_INTEREST_RATE = 0.065          # 6.5% annual
+DEFAULT_DOWN_PAYMENT_PCT = 0.25  # 25% down (fallback if validate doesn't override)
+DEFAULT_INTEREST_RATE = 0.065  # 6.5% annual
 DEFAULT_LOAN_TERM_YEARS = 30
-DEFAULT_TAXES_ANNUAL = 3000.0          # fallback if missing
-DEFAULT_INSURANCE_ANNUAL = 1200.0      # fallback if missing
+DEFAULT_TAXES_ANNUAL = 3000.0  # fallback if missing
+DEFAULT_INSURANCE_ANNUAL = 1200.0  # fallback if missing
 
-# --------------------------------------------------------------------------
-# Core dependencies
-# --------------------------------------------------------------------------
 
 _deal_repo: DealRepository = SqlDealRepository(config.DB_URI)
 _property_repo: PropertyRepository = SqlPropertyRepository(config.DB_URI)
 
-# Rent estimator is optional; if it blows up, we fall back in quantile helper
+# Rent estimator is optional; if it blows up, we fall back to defaults inside analyze_deal
 try:
     _rent_estimator: LightGBMRentEstimator | None = LightGBMRentEstimator()
 except Exception:
@@ -51,10 +45,6 @@ _default_assumptions = UnderwritingAssumptions(
     closing_cost_pct=config.DEFAULT_CLOSING_COST_PCT,
     min_dscr_good=config.MIN_DSCR_GOOD,
 )
-
-# --------------------------------------------------------------------------
-# Existing endpoints
-# --------------------------------------------------------------------------
 
 
 @app.get("/deals", response_model=list[dict])
@@ -87,16 +77,10 @@ def get_deal(deal_id: int) -> dict:
         raise HTTPException(status_code=404, detail="deal not found")
     return row.result | {"deal_id": row.id, "ts": row.ts.isoformat()}
 
-
-# --------------------------------------------------------------------------
-# Helpers for /top-deals
-# --------------------------------------------------------------------------
-
-
 def _build_property_from_record(rec: Dict[str, Any]) -> Property:
     """
     Convert a property row/dict from SqlPropertyRepository.search into a Property
-    with standardized screening assumptions.
+    with standardized screening assumptions. Kept for future use.
     """
     return Property(
         property_type=rec.get("property_type", "single_family"),
@@ -117,13 +101,14 @@ def _build_property_from_record(rec: Dict[str, Any]) -> Property:
         units=None,
     )
 
-
 def _estimate_rent_quantiles(prop: Property, rec: Dict[str, Any]) -> Dict[str, float]:
     """
     Estimate rent quantiles using:
       - LightGBMRentEstimator (if available) to get base rent
       - rent_quantile_bundle if configured
       - otherwise a +/-10% band around base
+
+    Currently not wired into /top-deals, but kept for future calibration.
     """
     bedrooms = float(rec.get("beds") or 0.0)
     bathrooms = float(rec.get("baths") or 0.0)
@@ -156,10 +141,10 @@ def _estimate_rent_quantiles(prop: Property, rec: Dict[str, Any]) -> Dict[str, f
 
     return predict_rent_quantiles(features)
 
-
 def _estimate_arv_quantiles(prop: Property, rec: Dict[str, Any]) -> Dict[str, float]:
     """
     Estimate ARV quantiles using ARV bundle if present, else +/-10% around list price.
+    Currently not wired into /top-deals, but kept for future calibration.
     """
     list_price = float(rec.get("list_price") or 0.0)
     sqft = float(rec.get("sqft") or 0.0)
@@ -174,12 +159,6 @@ def _estimate_arv_quantiles(prop: Property, rec: Dict[str, Any]) -> Dict[str, fl
 
     return predict_arv_quantiles(features)
 
-
-# --------------------------------------------------------------------------
-# /top-deals: zip-level ranked opportunities
-# --------------------------------------------------------------------------
-
-
 @app.get("/top-deals", response_model=list[TopDealItem])
 def top_deals(
     zip: str = Query(..., alias="zip"),
@@ -188,7 +167,14 @@ def top_deals(
 ) -> list[TopDealItem]:
     """
     Return ranked deals for a given zip and optional price ceiling.
-    Used directly by the frontend TopDealsTable.
+
+    NEW BEHAVIOR:
+      For each property in the SQL repo, we build the SAME payload shape
+      used in scripts/debug_top_deal_sample.py and pass it through
+      services.deal_analyzer.analyze_deal(...).
+
+    This guarantees that /top-deals labels (buy/maybe/pass) and metrics
+    line up with what you see in your debug scripts and /analyze endpoint.
     """
     try:
         records = _property_repo.search(
@@ -205,67 +191,45 @@ def top_deals(
         if not rec.get("list_price"):
             continue
 
-        # 1) Build Property snapshot with default assumptions
-        prop = _build_property_from_record(rec)
-
-        # 2) Underwriting metrics
-        finance = analyze_property_financials(prop, _default_assumptions)
-
-        # 3) Quantiles (uncertainty)
-        rent_q = _estimate_rent_quantiles(prop, rec)
-        arv_q = _estimate_arv_quantiles(prop, rec)
-
-        # 4) DOM
         raw = rec.get("raw") or {}
+
+        # Days on market pulled from raw Zillow payload if present
         dom = float(
-            raw.get("days_on_zillow")
+            raw.get("daysOnZillow")
             or raw.get("dom")
             or rec.get("dom")
             or 0.0
         )
 
-        # 5) Risk-adjusted score
-        score = score_property(
-            finance=finance,
-            arv_q=arv_q,
-            rent_q=rent_q,
-            dom=dom,
-            strategy="hold",
-        )
+        # Build payload exactly like debug_top_deal_sample.py does
+        payload: dict[str, Any] = {
+            "address": rec["address"],
+            "city": rec["city"],
+            "state": rec["state"],
+            "zipcode": rec["zipcode"],
+            "list_price": float(rec["list_price"]),
+            "property_type": rec.get("property_type") or "single_family",
+            "sqft": float(rec.get("sqft") or 0.0),
+            "bedrooms": float(rec.get("beds") or raw.get("beds") or 0.0),
+            "bathrooms": float(rec.get("baths") or raw.get("baths") or 0.0),
+            "strategy": "hold",
+            "days_on_market": dom,
+        }
 
-        # 6) Best-effort persistence: history for future calibration
         try:
-            _deal_repo.save_analysis(
-                analysis={
-                    "property": {
-                        "external_id": rec.get("external_id"),
-                        "source": rec.get("source"),
-                        "address": rec.get("address"),
-                        "city": rec.get("city"),
-                        "state": rec.get("state"),
-                        "zipcode": rec.get("zipcode"),
-                    },
-                    "finance": finance,
-                    "score": score,
-                    "arv_q": arv_q,
-                    "rent_q": rent_q,
-                    "dom": dom,
-                },
-                request_payload={
-                    "zip": zip,
-                    "max_price": max_price,
-                    "screening_terms": {
-                        "down_payment_pct": prop.down_payment_pct,
-                        "interest_rate_annual": prop.interest_rate_annual,
-                        "loan_term_years": prop.loan_term_years,
-                    },
-                },
+            # Use the same analysis pipeline as /analyze & debug scripts
+            analysis = analyze_deal(
+                raw_payload=payload,
+                rent_estimator=_rent_estimator or LightGBMRentEstimator(),
+                repo=_deal_repo,
             )
-        except Exception:
-            # don't break the endpoint if logging/history fails
-            pass
+        except Exception as e:
+            # If a single property blows up, skip it rather than kill the endpoint
+            continue
 
-        # 7) Build response object
+        finance = analysis.get("finance", {})
+        score = analysis.get("score", {})
+
         items.append(
             TopDealItem(
                 external_id=str(rec.get("external_id") or ""),
@@ -278,9 +242,7 @@ def top_deals(
                 lon=rec.get("lon"),
                 list_price=float(rec["list_price"]),
                 dscr=float(finance.get("dscr", 0.0)),
-                cash_on_cash_return=float(
-                    finance.get("cash_on_cash_return", 0.0)
-                ),
+                cash_on_cash_return=float(finance.get("cash_on_cash_return", 0.0)),
                 breakeven_occupancy_pct=float(
                     finance.get("breakeven_occupancy_pct", 0.0)
                 ),
@@ -291,6 +253,6 @@ def top_deals(
             )
         )
 
-    # 8) Sort best → worst
+    # Sort best → worst using the risk-adjusted rank_score
     items.sort(key=lambda x: x.rank_score, reverse=True)
     return items

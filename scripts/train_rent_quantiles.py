@@ -1,3 +1,5 @@
+# scripts/train_rent_quantiles.py
+
 import pickle
 import time
 from pathlib import Path
@@ -22,6 +24,8 @@ def main() -> None:
         "sqft",
         "zipcode_encoded",
         "property_type_encoded",
+        # NEW:
+        "is_small_unit",
     ]
 
     missing = [c for c in feature_cols if c not in df.columns]

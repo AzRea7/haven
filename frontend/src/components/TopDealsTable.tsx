@@ -1,176 +1,239 @@
 // frontend/src/components/TopDealsTable.tsx
 
+import React from "react";
+
 export type TopDealItem = {
-  external_id: string;
-  source: string;
+  id: string;
   address: string;
   city: string;
   state: string;
   zipcode: string;
+
   list_price: number;
+
   dscr: number;
   cash_on_cash_return: number;
   breakeven_occupancy_pct: number;
   rank_score: number;
-  label: string;
+
+  label: "buy" | "maybe" | "pass";
   reason: string;
+  source: string;
+
   lat?: number | null;
   lon?: number | null;
+
   dom?: number | null;
 };
 
 type Props = {
-  zip: string;
   deals: TopDealItem[];
-  loading: boolean;
-  error: string | null;
+  isLoading?: boolean;
+  error?: string | null;
+  selectedDealId?: string | null;
+  onSelectDeal?: (id: string | null) => void;
 };
 
+/* ---------- helpers ---------- */
+
 function formatMoney(value: number): string {
-  return `$${value.toLocaleString(undefined, {
+  if (!Number.isFinite(value)) return "-";
+  return value.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
     maximumFractionDigits: 0,
-  })}`;
+  });
 }
 
-function formatPercent(value: number): string {
+function formatPct(value: number): string {
+  if (!Number.isFinite(value)) return "-";
   return `${(value * 100).toFixed(1)}%`;
 }
 
-function formatDSCR(value: number): string {
+function formatDscr(value: number): string {
+  if (!Number.isFinite(value)) return "-";
   return value.toFixed(2);
 }
 
-function labelClass(label: string): string {
-  const lower = label.toLowerCase();
-  if (lower === "buy") return "label-chip label-chip-buy";
-  if (lower === "maybe") return "label-chip label-chip-maybe";
-  return "label-chip label-chip-pass";
+function formatRankScore(value: number): string {
+  if (!Number.isFinite(value)) return "-";
+  return value.toFixed(1);
 }
 
-export function TopDealsTable({ zip, deals, loading, error }: Props) {
-  if (!zip) {
-    return (
-      <div className="panel">
-        <p className="muted">Enter a ZIP code to view ranked opportunities.</p>
-      </div>
-    );
+function labelChipClass(label: TopDealItem["label"]): string {
+  switch (label) {
+    case "buy":
+      return "label-chip label-chip-buy";
+    case "maybe":
+      return "label-chip label-chip-maybe";
+    case "pass":
+    default:
+      return "label-chip label-chip-pass";
   }
+}
 
-  if (loading) {
+function labelText(label: TopDealItem["label"]): string {
+  switch (label) {
+    case "buy":
+      return "BUY";
+    case "maybe":
+      return "MAYBE";
+    case "pass":
+    default:
+      return "PASS";
+  }
+}
+
+/* ---------- main component ---------- */
+
+export function TopDealsTable({
+  deals,
+  isLoading,
+  error,
+  selectedDealId,
+  onSelectDeal,
+}: Props) {
+  // loading skeleton
+  if (isLoading) {
     return (
-      <div className="panel">
+      <>
         <div className="panel-header">
           <h2>Top Deals</h2>
-          <span className="muted">Loading market insights…</span>
+          <div className="muted">
+            Running analysis and ranking by cashflow and DSCR…
+          </div>
         </div>
         <div className="skeleton-list">
           <div className="skeleton-card" />
           <div className="skeleton-card" />
           <div className="skeleton-card" />
         </div>
-      </div>
+      </>
     );
   }
 
+  // error banner
   if (error) {
     return (
-      <div className="panel">
+      <>
         <div className="panel-header">
           <h2>Top Deals</h2>
         </div>
         <div className="error-banner">{error}</div>
-      </div>
+      </>
     );
   }
 
-  if (!deals.length) {
+  // empty state
+  if (!deals || deals.length === 0) {
     return (
-      <div className="panel">
+      <>
         <div className="panel-header">
           <h2>Top Deals</h2>
+          <div className="muted">
+            No properties found for this search. Try a different ZIP or widen
+            your price range.
+          </div>
         </div>
-        <p className="muted">
-          No results for <strong>{zip}</strong> under the current criteria. Try
-          adjusting your max price or ZIP code.
-        </p>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="panel">
+    <>
       <div className="panel-header">
         <h2>Top Deals</h2>
-        <span className="muted">
-          {deals.length} properties ranked by cashflow and DSCR
-        </span>
+        <div className="muted">
+          {deals.length} properties ranked by cashflow and DSCR.
+        </div>
       </div>
 
       <div className="deal-list">
-        {deals.map((deal) => (
-          <article
-            key={`${deal.source}-${deal.external_id}`}
-            className="deal-card"
-          >
-            <div className="deal-card-main">
+        {deals.map((deal) => {
+          const isSelected = selectedDealId === deal.id;
+          return (
+            <div
+              key={deal.id}
+              className="deal-card"
+              style={
+                isSelected
+                  ? {
+                      borderColor: "rgba(37,99,235,0.6)",
+                      boxShadow: "0 16px 40px rgba(37,99,235,0.18)",
+                    }
+                  : undefined
+              }
+              onClick={() =>
+                onSelectDeal?.(isSelected ? null : (deal.id as string))
+              }
+            >
+              {/* price + label row */}
               <div className="deal-card-price-row">
-                <div className="deal-card-price">
-                  {formatMoney(deal.list_price)}
+                <div>
+                  <div className="deal-card-price">
+                    {formatMoney(deal.list_price)}
+                  </div>
+                  <div className="deal-card-address">{deal.address}</div>
+                  <span className="deal-card-city">
+                    {deal.city}, {deal.state} {deal.zipcode}
+                  </span>
                 </div>
-                <span className={labelClass(deal.label)}>
-                  {deal.label.toUpperCase()}
-                </span>
+
+                <div>
+                  <span className={labelChipClass(deal.label)}>
+                    {labelText(deal.label)}
+                  </span>
+                </div>
               </div>
 
-              <div className="deal-card-address">
-                {deal.address}
-                <span className="deal-card-city">
-                  {deal.city}, {deal.state} {deal.zipcode}
-                </span>
-              </div>
-
+              {/* metrics row */}
               <div className="deal-card-metrics">
                 <div className="metric">
                   <div className="metric-label">DSCR</div>
-                  <div className="metric-value">{formatDSCR(deal.dscr)}</div>
+                  <div className="metric-value">{formatDscr(deal.dscr)}</div>
                 </div>
                 <div className="metric">
                   <div className="metric-label">Cash-on-Cash</div>
                   <div className="metric-value">
-                    {formatPercent(deal.cash_on_cash_return)}
+                    {formatPct(deal.cash_on_cash_return)}
                   </div>
                 </div>
                 <div className="metric">
                   <div className="metric-label">Breakeven Occ.</div>
                   <div className="metric-value">
-                    {deal.breakeven_occupancy_pct.toFixed(1)}%
+                    {formatPct(deal.breakeven_occupancy_pct)}
                   </div>
                 </div>
                 <div className="metric">
                   <div className="metric-label">Rank Score</div>
                   <div className="metric-value">
-                    {deal.rank_score.toFixed(1)}
+                    {formatRankScore(deal.rank_score)}
                   </div>
                 </div>
-                {deal.dom != null && (
-                  <div className="metric">
-                    <div className="metric-label">Days on Market</div>
-                    <div className="metric-value">{deal.dom}</div>
-                  </div>
-                )}
               </div>
 
-              <p className="deal-card-reason">{deal.reason}</p>
-            </div>
+              {/* narrative + footer */}
+              <p className="deal-card-reason">
+                {deal.reason ||
+                  (deal.label === "buy"
+                    ? "High risk-adjusted score with strong coverage and returns."
+                    : deal.label === "maybe"
+                    ? "Workable, but requires deeper underwriting or better terms."
+                    : "Negative cashflow in base case.")}
+              </p>
 
-            <div className="deal-card-footer">
-              <span className="deal-card-source">
-                Source: {deal.source.toUpperCase()}
-              </span>
+              <div className="deal-card-footer">
+                {typeof deal.dom === "number" && (
+                  <span>{deal.dom} days on market · </span>
+                )}
+                <span className="deal-card-source">
+                  Source: {deal.source || "ZILLOW_HASDATA"}
+                </span>
+              </div>
             </div>
-          </article>
-        ))}
+          );
+        })}
       </div>
-    </div>
+    </>
   );
 }
