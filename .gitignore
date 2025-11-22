@@ -72,3 +72,9 @@ haven.db
 *.db
 haven.db
 frontend/haven.db
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
