@@ -67,3 +67,23 @@ data/
 
 # Jupyter runtime (never commit)
 .ipynb_checkpoints/
+
+
+# Local SQLite databases
+haven.db
+frontend/haven.db
+
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments (if you keep one here)
+.venv/
+venv/
+
+# Node modules (if not already ignored)
+node_modules/
+
+# OS junk
+.DS_Store
+Thumbs.db
