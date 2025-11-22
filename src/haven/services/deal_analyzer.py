@@ -1,4 +1,3 @@
-# haven/services/deal_analyzer.py
 from __future__ import annotations
 
 from typing import Any
@@ -100,7 +99,7 @@ def _fill_missing_rents(
     if not getattr(prop, "units", None) and _is_missing_rent(
         getattr(prop, "est_market_rent", None)
     ):
-        # ⚠️ IMPORTANT: pull features from payload first, fall back to Property
+        # IMPORTANT: pull features from payload first, fall back to Property
         b_raw = (
             payload.get("bedrooms")
             or payload.get("num_bedrooms")
@@ -181,7 +180,8 @@ def _attach_suggestion_and_rank(score: dict, finance: dict) -> dict:
       - score["suggestion"] ∈ {"buy", "maybe negotiate", "maybe (low DSCR)", "pass"}
       - score["rank_score"] exists and orders good > bad deals.
 
-    We use a simple, monotonic heuristic for rank_score based on DSCR and CoC.
+    We use a simple, monotonic heuristic for rank_score based on DSCR and CoC,
+    but only if score_property hasn't already provided one.
     """
     s = dict(score)
 
@@ -204,10 +204,6 @@ def _attach_suggestion_and_rank(score: dict, finance: dict) -> dict:
 
     # Ensure rank_score is present. If score_property already provided one, keep it.
     if "rank_score" not in s:
-        # Simple monotonic function:
-        #   - higher DSCR is better
-        #   - higher CoC is better
-        #   - this guarantees good_deal > bad_deal in tests where rent is fixed
         s["rank_score"] = dscr + 5.0 * coc
 
     return s

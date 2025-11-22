@@ -1,6 +1,7 @@
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
+from typing import List
 
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -20,7 +21,7 @@ def get_engine():
     return create_engine(config.DB_URI)
 
 
-def get_distinct_zips() -> list[str]:
+def get_distinct_zips() -> List[str]:
     """
     Return distinct ZIP codes from the properties table.
     """
@@ -41,27 +42,33 @@ def get_distinct_zips() -> list[str]:
 
 def build_features_for_zip(zipcode: str) -> pd.DataFrame:
     """
-    Build a feature dataframe for all properties in a given ZIP:
-    - Pulls rows via SqlPropertyRepository.search
-    - Derives est_rent, NOI, cap_rate
-    - Encodes zipcode and property_type
+    Build model-ready features for a single ZIP code.
+
+    This feeds both:
+      - properties.parquet (for flip model)
+      - rent_training.parquet (for rent quantile model)
+
+    NOTE: SqlPropertyRepository.search returns dict-like rows, so we use
+    .get(...) everywhere instead of getattr(...).
     """
     repo = SqlPropertyRepository(uri=config.DB_URI)
-    props = repo.search(zipcode=zipcode, limit=100_000)
+    props = list(repo.search(zipcode=zipcode, limit=100_000))
 
     rows = []
     for p in props:
-        price = float(getattr(p, "list_price", 0.0) or 0.0)
-        taxes = float(getattr(p, "taxes", 0.0) or 0.0)
-        hoa = float(getattr(p, "hoa_fee", 0.0) or 0.0)
-        bedrooms = getattr(p, "bedrooms", None)
-        bathrooms = getattr(p, "bathrooms", None)
-        sqft = getattr(p, "sqft", None)
-        property_type = getattr(p, "property_type", None)
-        zipcode_val = getattr(p, "zipcode", zipcode)
+        # Basic numeric fields
+        price = float(p.get("list_price") or 0.0)
+        taxes = float(p.get("taxes") or 0.0)
+        hoa = float(p.get("hoa_fee") or 0.0)
 
-        # est_rent: real if present, else heuristic
-        est_rent_raw = getattr(p, "est_rent", None)
+        bedrooms = p.get("bedrooms", p.get("beds"))
+        bathrooms = p.get("bathrooms", p.get("baths"))
+        sqft = p.get("sqft", p.get("area"))
+        property_type = p.get("property_type") or "unknown"
+        zipcode_val = p.get("zipcode") or zipcode
+
+        # Existing est_rent from ingestion if present; otherwise heuristic
+        est_rent_raw = p.get("est_rent")
         if est_rent_raw is None or float(est_rent_raw or 0.0) <= 0.0:
             est_rent = price * 0.008 if price > 0 else 0.0
         else:
@@ -72,8 +79,10 @@ def build_features_for_zip(zipcode: str) -> pd.DataFrame:
 
         rows.append(
             {
-                "id": getattr(p, "id", None),
-                "address": getattr(p, "address", None),
+                "id": p.get("id"),
+                "external_id": p.get("external_id"),
+                "source": p.get("source"),
+                "address": p.get("address"),
                 "zipcode": zipcode_val,
                 "list_price": price,
                 "bedrooms": bedrooms,
@@ -93,12 +102,19 @@ def build_features_for_zip(zipcode: str) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
 
-    # Coerce numeric fields to numeric (LightGBM + sklearn friendly)
+    # Coerce numeric
     for col in ["bedrooms", "bathrooms", "sqft"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
+    # NEW: explicit flag for small / tiny units (< 800 sqft)
+    if "sqft" in df.columns:
+        df["is_small_unit"] = (df["sqft"] < 800).astype(int)
+    else:
+        df["is_small_unit"] = 0
+
     # Encodings
+    df["zipcode"] = df["zipcode"].astype(str)
     df["zipcode_encoded"] = df["zipcode"].astype("category").cat.codes
 
     if "property_type" in df.columns:
@@ -143,7 +159,6 @@ def main() -> None:
     final = pd.concat(dfs, ignore_index=True)
 
     # --- Robust flip_success label ---
-    # Start from cap_rate distribution:
     cap = final["cap_rate"].fillna(0)
 
     # Try percentile-based threshold so we always get some positives:
@@ -161,7 +176,6 @@ def main() -> None:
 
     # Guarantee both classes exist
     if flip.nunique() < 2:
-        # Force at least one positive and one negative
         order = cap.sort_values(ascending=False).index
         flip = pd.Series(0, index=final.index)
         if len(order) > 0:
@@ -175,7 +189,6 @@ def main() -> None:
     print(f"Wrote {len(final)} rows to {props_path}")
 
     # --- Save rent_training.parquet for rent quantile model ---
-    # Use est_rent heuristic as 'rent' (numeric).
     rent_df = final.copy()
     rent_df = rent_df.rename(columns={"est_rent": "rent"})
     rent_path = OUT_DIR / "rent_training.parquet"

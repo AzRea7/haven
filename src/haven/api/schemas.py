@@ -1,3 +1,4 @@
+# src/haven/api/schemas.py
 from typing import Optional
 from pydantic import BaseModel, Field
 
@@ -7,6 +8,7 @@ class UnitIn(BaseModel):
     bathrooms: float | None = None
     sqft: float | None = None
     market_rent: float | None = None
+
 
 class AnalyzeRequest(BaseModel):
     property_type: str
@@ -25,6 +27,7 @@ class AnalyzeRequest(BaseModel):
     est_market_rent: float | None = None
     units: list[UnitIn] | None = Field(default=None)
 
+
 class AnalyzeResponse(BaseModel):
     deal_id: int | None = None
     address: dict
@@ -32,6 +35,7 @@ class AnalyzeResponse(BaseModel):
     finance: dict
     pricing: dict
     score: dict
+
 
 class TopDealItem(BaseModel):
     external_id: str = Field(..., description="Source listing ID")
