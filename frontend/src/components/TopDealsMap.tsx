@@ -1,3 +1,5 @@
+// frontend/src/components/TopDealsMap.tsx
+
 import { MapContainer, TileLayer, Marker, Tooltip } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
@@ -28,7 +30,16 @@ export function TopDealsMap({ deals }: Props) {
   );
 
   if (withCoords.length === 0) {
-    return null;
+    return (
+      <div className="panel map-panel">
+        <div className="panel-header">
+          <h2>Map</h2>
+        </div>
+        <p className="muted">
+          No properties with coordinates available for this search.
+        </p>
+      </div>
+    );
   }
 
   const center: [number, number] = [
@@ -37,11 +48,16 @@ export function TopDealsMap({ deals }: Props) {
   ];
 
   return (
-    <div style={{ marginTop: "1rem" }}>
+    <div className="panel map-panel">
+      <div className="panel-header">
+        <h2>Map</h2>
+        <span className="muted">Click markers to view score details</span>
+      </div>
       <MapContainer
         center={center}
         zoom={12}
-        style={{ height: "400px", width: "100%" }}
+        className="map-container"
+        scrollWheelZoom={true}
       >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         {withCoords.map((d) => (
