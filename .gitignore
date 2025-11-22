@@ -71,3 +71,4 @@ data/
 haven.db
 *.db
 haven.db
+frontend/haven.db
