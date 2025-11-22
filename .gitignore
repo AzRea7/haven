@@ -67,3 +67,6 @@ data/
 
 # Jupyter runtime (never commit)
 .ipynb_checkpoints/
+
+haven.db
+*.db
