@@ -78,3 +78,65 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Python cache and temp
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.ipynb_checkpoints/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local DB files
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Model artifacts
+*.pkl
+*.joblib
+models/
+lightgbm_models/
+*.bin
+
+# Build & Dist
+build/
+dist/
+
+# Frontend
+node_modules/
+*.local
+*.cache/
+.vite/
+.parcel-cache/
+.turbo/
+coverage/
+*.DS_Store
+
+# Datasets / intermediate features
+data/
+features/
+tmp/
+temp/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Editor backup/swap
+*.swp
+*.swo
+
+# IDE configs (optional)
+.vscode/
+.idea/
