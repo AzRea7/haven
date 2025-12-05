@@ -14,7 +14,10 @@ FEATURES = [
     "ring050_dom_med","ring100_dom_med","ring150_dom_med",
     "ring050_sale_to_list_med","ring100_sale_to_list_med","ring150_sale_to_list_med",
     "ring050_price_cuts_p","ring100_price_cuts_p","ring150_price_cuts_p",
-    "ring050_mos","ring100_mos","ring150_mos",
+    "ring050_mos","ring100_mos","ring150_mos", "walk_score",          # 0–100
+    "school_score",      
+    "crime_index",        
+    "rent_demand_index",
 ]
 
 REQUIRED_SOLD = [
@@ -69,3 +72,70 @@ def finalize_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
         if c not in df.columns:
             df[c] = np.nan
     return df
+
+def attach_neighborhood_quality(
+    base: pd.DataFrame,
+    neighborhoods: pd.DataFrame,
+    on: str = "zip",
+) -> pd.DataFrame:
+    """
+    Join in neighborhood-quality metrics (walkability, schools, crime, rent demand)
+    by ZIP (or other key).
+
+    neighborhoods must have at least:
+      - a join key column (default 'zip')
+      - some subset of:
+          'walk_score', 'school_score', 'crime_index', 'rent_demand_index'
+    """
+    cols = ["walk_score", "school_score", "crime_index", "rent_demand_index"]
+
+    # If base is missing the join key entirely, just add empty columns and bail.
+    if on not in base.columns:
+        for c in cols:
+            if c not in base.columns:
+                base[c] = 0.0
+        return base
+
+    # Limit to columns that actually exist in the provided neighborhoods frame
+    present = [c for c in cols if c in neighborhoods.columns]
+    if not present:
+        # Nothing to join; ensure columns exist on base and return
+        for c in cols:
+            if c not in base.columns:
+                base[c] = 0.0
+        return base
+
+    # Work on copies so we don't mutate callers' DataFrames unexpectedly
+    base = base.copy()
+    nb = neighborhoods.copy()
+
+    # Ensure join key exists in neighborhood frame
+    if on not in nb.columns:
+        # If the neighborhoods file used 'zipcode' while base used 'zip', try that
+        if on == "zip" and "zipcode" in nb.columns:
+            nb = nb.rename(columns={"zipcode": "zip"})
+        else:
+            # Can't join; just add default columns and return
+            for c in cols:
+                if c not in base.columns:
+                    base[c] = 0.0
+            return base
+
+    # Normalize join key dtype: convert both to string (and zero-pad 5 digits for ZIPs)
+    base[on] = base[on].astype(str).str.zfill(5)
+    nb[on] = nb[on].astype(str).str.zfill(5)
+
+    join_cols = [on] + present
+    nb = nb[join_cols].drop_duplicates(on)
+
+    merged = base.merge(nb, how="left", on=on, suffixes=("", "_nbhd"))
+
+    # Fill any NAs with neutral-ish defaults
+    for c in cols:
+        if c not in merged.columns:
+            merged[c] = 0.0
+        else:
+            merged[c] = merged[c].fillna(0.0)
+
+    return merged
+

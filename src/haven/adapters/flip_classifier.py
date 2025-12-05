@@ -26,6 +26,10 @@ class FlipClassifier:
     """
 
     def __init__(self, model_path: str | None = None) -> None:
+        # Try (in order):
+        #   1. explicit model_path arg
+        #   2. HAVEN_FLIP_MODEL_PATH / config.FLIP_MODEL_PATH
+        #   3. default path under ./models
         mp = (
             model_path
             or getattr(config, "FLIP_MODEL_PATH", None)
@@ -52,6 +56,7 @@ class FlipClassifier:
     def _vectorize(self, features: Mapping[str, float]) -> np.ndarray:
         m = self.model
         if m is None:
+            # Caller will treat probability as neutral if model isn't ready
             return np.zeros((1, 1), dtype=float)
 
         # If the model exposes feature_names_in_, respect it.
