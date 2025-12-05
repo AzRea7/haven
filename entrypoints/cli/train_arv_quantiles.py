@@ -1,20 +1,22 @@
-# entrypoints/cli/train_arv_quantiles.py
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Dict, List, Tuple
 
 import joblib
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import lightgbm as lgb
+from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
+from sklearn.model_selection import train_test_split
 
 
-def load_training(path: Path) -> tuple[pd.DataFrame, np.ndarray, list[str]]:
+def load_training(path: Path) -> Tuple[pd.DataFrame, np.ndarray, List[str]]:
     if not path.exists():
         raise SystemExit(
             f"ERROR: ARV training file not found at {path}. "
-            "Run entrypoints/cli/build_arv_training_from_properties.py first."
+            "Run entrypoints/cli/build_arv_training_from_redfin.py first."
         )
 
     df = pd.read_parquet(path)
@@ -24,7 +26,7 @@ def load_training(path: Path) -> tuple[pd.DataFrame, np.ndarray, list[str]]:
 
     y = df["target_arv"].astype(float).to_numpy()
 
-    # Use all numeric columns except target and (optionally) raw list_price
+    # Select all numeric columns except target
     numeric_cols: list[str] = []
     for c in df.columns:
         if c == "target_arv":
@@ -32,73 +34,95 @@ def load_training(path: Path) -> tuple[pd.DataFrame, np.ndarray, list[str]]:
         if pd.api.types.is_numeric_dtype(df[c]):
             numeric_cols.append(c)
 
-    # Optionally drop list_price so ARV isn't trivially equal to ask
-    if "list_price" in numeric_cols:
-        numeric_cols.remove("list_price")
-
-    if not numeric_cols:
-        raise SystemExit("ERROR: No numeric feature columns found for ARV training.")
-
-    X = df[numeric_cols].fillna(0.0)
-
-    print(f"Using ARV features: {numeric_cols}")
+    X = df[numeric_cols].astype(float)
     return X, y, numeric_cols
 
 
-def make_quantile_model(alpha: float) -> lgb.LGBMRegressor:
-    return lgb.LGBMRegressor(
-        objective="quantile",
-        alpha=alpha,
-        n_estimators=500,
-        learning_rate=0.05,
-        max_depth=-1,
-        num_leaves=31,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=42,
-    )
+def train_quantile_models(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_val: np.ndarray,
+    y_val: np.ndarray,
+    quantiles: Tuple[float, ...] = (0.1, 0.5, 0.9),
+) -> Dict[float, lgb.LGBMRegressor]:
+
+    models: Dict[float, lgb.LGBMRegressor] = {}
+
+    for q in quantiles:
+        print(f"Training quantile model for alpha={q}...")
+
+        model = lgb.LGBMRegressor(
+            objective="quantile",
+            alpha=q,
+            n_estimators=400,
+            learning_rate=0.05,
+            max_depth=-1,
+            num_leaves=64,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            min_child_samples=20,
+        )
+
+        # FIX: LightGBM >= 4.0 expects callbacks instead of verbose
+        model.fit(
+            X_train,
+            y_train,
+            eval_set=[(X_val, y_val)],
+            eval_metric="l1",
+            callbacks=[
+                lgb.log_evaluation(period=50),  # print evaluation every 50 iterations
+            ],
+        )
+
+        models[q] = model
+
+    return models
+
+
+def evaluate_basic(y_true: np.ndarray, y_pred_median: np.ndarray) -> None:
+    mae = mean_absolute_error(y_true, y_pred_median)
+    mape = mean_absolute_percentage_error(y_true, y_pred_median)
+
+    print(f"Validation MAE:  {mae:,.0f}")
+    print(f"Validation MAPE: {mape * 100:.2f}%")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Train ARV quantile models.")
     parser.add_argument(
-        "--in",
-        type=str,
-        default="data/curated/arv_training.parquet",
-        help="Input ARV training parquet.",
-        dest="in_path",
+        "--training-path",
+        type=Path,
+        default=Path("data/processed/arv_training_from_sold.parquet"),
+        help="Parquet with numeric features and target_arv.",
     )
     parser.add_argument(
-        "--outdir",
-        type=str,
-        default="models",
-        help="Directory to write arv_q10/50/90.joblib.",
+        "--out",
+        type=Path,
+        default=Path("models/arv_quantiles.joblib"),
+        help="Where to save the trained quantile models.",
     )
     args = parser.parse_args()
-    in_path = Path(args.in_path)
-    outdir = Path(args.outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
 
-    X, y, cols = load_training(in_path)
+    X, y, feature_names = load_training(args.training_path)
 
-    quantiles = {
-        "arv_q10.joblib": 0.10,
-        "arv_q50.joblib": 0.50,
-        "arv_q90.joblib": 0.90,
-    }
+    X_train, X_val, y_train, y_val = train_test_split(
+        X.to_numpy(),
+        y,
+        test_size=0.2,
+        random_state=42,
+    )
 
-    for fname, alpha in quantiles.items():
-        print(f"Training LightGBM quantile model alpha={alpha} → {fname}")
-        model = make_quantile_model(alpha)
+    models = train_quantile_models(X_train, y_train, X_val, y_val)
 
-        # Fit on a pandas DataFrame so LightGBM can infer feature names itself
-        model.fit(X, y)
+    # Evaluate median quantile model
+    y_pred_median = models[0.5].predict(X_val)
+    evaluate_basic(y_val, y_pred_median)
 
-        out_path = outdir / fname
-        joblib.dump(model, out_path)
-        print(f"Saved ARV model alpha={alpha} to {out_path}")
+    payload = {"models": models, "feature_names": feature_names}
 
-    print("ARV quantile training complete.")
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(payload, args.out)
+    print(f"Saved ARV quantile models to {args.out}")
 
 
 if __name__ == "__main__":

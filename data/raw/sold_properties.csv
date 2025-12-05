@@ -1,2 +1,4 @@
-source_url,zpid,address,city,state,zip,lat,lon,beds,baths,sqft,list_price,sold_price,sold_date,dom,property_type
-https://www.zillow.com/homedetails/301-E-79th-St-APT-23S-New-York-NY-10075/31543731_zpid/,,"{'street': '301 E 79th St APT 23S', 'city': 'New York', 'state': 'NY', 'zipcode': '10075'}",,,,40.773464,-73.95498,1,1,,975000,,,748,CONDO
+sold_price,sold_date,bedrooms,bathrooms,sqft,year_built,zipcode,property_type
+325000,2024-03-15,3,2,1450,1965,48009,single_family
+410000,2024-04-01,4,3,2200,1980,48363,single_family
+...
