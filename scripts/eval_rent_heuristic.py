@@ -11,7 +11,7 @@ def run() -> None:
     sqfts = [650, 900, 1200, 1500, 2200]
 
     print("is_ready:", getattr(est, "is_ready", None))
-    print("Evaluating rent heuristic across a small grid...\n")
+    print("Evaluating rent heuristic + ZIP caps across a small grid...\n")
 
     for z in zips:
         print(f"ZIP {z}")
@@ -24,10 +24,14 @@ def run() -> None:
                     zipcode=z,
                     property_type="single_family",
                 )
+                psf = rent / s
                 print(
-                    f"  {beds}bd/{baths}ba, {s} sqft -> est rent ${rent:,.0f}/mo"
+                    f"  {beds}bd/{baths}ba, {s:4d} sqft -> "
+                    f"est rent ${rent:6.0f}/mo  (${psf:4.2f}/sqft)"
                 )
         print()
+
+    print("Done.\n")
 
 
 if __name__ == "__main__":

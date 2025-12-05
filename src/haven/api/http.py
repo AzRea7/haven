@@ -1,3 +1,4 @@
+# src/haven/api/http.py
 from collections.abc import Sequence
 from typing import Any, Dict
 
@@ -19,7 +20,6 @@ from haven.adapters.arv_quantile_bundle import predict_arv_quantiles
 from .schemas import AnalyzeRequest, AnalyzeResponse, TopDealItem
 
 app = FastAPI()
-
 
 DEFAULT_DOWN_PAYMENT_PCT = 0.25  # 25% down (fallback if validate doesn't override)
 DEFAULT_INTEREST_RATE = 0.065  # 6.5% annual
@@ -55,6 +55,11 @@ def list_deals(limit: int = 50) -> list[dict]:
 
 @app.post("/analyze")
 def analyze_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    Low-friction analyze endpoint that just accepts a raw dict payload.
+
+    This is what your debug scripts use.
+    """
     try:
         return analyze_deal_with_defaults(raw_payload=payload)
     except Exception as e:
@@ -63,6 +68,9 @@ def analyze_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
 
 @app.post("/analyze2", response_model=AnalyzeResponse)
 def analyze_endpoint2(payload: AnalyzeRequest) -> AnalyzeResponse:
+    """
+    Typed analyze endpoint using AnalyzeRequest/AnalyzeResponse schemas.
+    """
     try:
         result = analyze_deal_with_defaults(raw_payload=payload.model_dump())
         return AnalyzeResponse(**result)
@@ -77,58 +85,17 @@ def get_deal(deal_id: int) -> dict:
         raise HTTPException(status_code=404, detail="deal not found")
     return row.result | {"deal_id": row.id, "ts": row.ts.isoformat()}
 
-def _build_property_from_record(rec: Dict[str, Any]) -> Property:
-    """
-    Convert a property row/dict from SqlPropertyRepository.search into a Property
-    with standardized screening assumptions. Kept for future use.
-    """
-    return Property(
-        property_type=rec.get("property_type", "single_family"),
-        address=rec["address"],
-        city=rec["city"],
-        state=rec["state"],
-        zipcode=rec["zipcode"],
-        list_price=float(rec["list_price"]),
-        down_payment_pct=DEFAULT_DOWN_PAYMENT_PCT,
-        interest_rate_annual=DEFAULT_INTEREST_RATE,
-        loan_term_years=DEFAULT_LOAN_TERM_YEARS,
-        taxes_annual=float(rec.get("taxes_annual") or DEFAULT_TAXES_ANNUAL),
-        insurance_annual=float(
-            rec.get("insurance_annual") or DEFAULT_INSURANCE_ANNUAL
-        ),
-        hoa_monthly=float(rec.get("hoa_monthly") or 0.0),
-        est_market_rent=None,
-        units=None,
-    )
 
 def _estimate_rent_quantiles(prop: Property, rec: Dict[str, Any]) -> Dict[str, float]:
     """
-    Estimate rent quantiles using:
-      - LightGBMRentEstimator (if available) to get base rent
-      - rent_quantile_bundle if configured
-      - otherwise a +/-10% band around base
-
-    Currently not wired into /top-deals, but kept for future calibration.
+    Estimate rent quantiles using the LightGBM rent bundle if available.
     """
+
     bedrooms = float(rec.get("beds") or 0.0)
     bathrooms = float(rec.get("baths") or 0.0)
     sqft = float(rec.get("sqft") or 0.0)
 
-    base = 0.0
-    if _rent_estimator is not None:
-        try:
-            base = float(
-                _rent_estimator.predict_unit_rent(
-                    bedrooms=bedrooms,
-                    bathrooms=bathrooms,
-                    sqft=sqft,
-                    zipcode=prop.zipcode,
-                    property_type=prop.property_type,
-                )
-                or 0.0
-            )
-        except Exception:
-            base = 0.0
+    base = float(rec.get("list_price") or 0.0)
 
     features = {
         "bedrooms": bedrooms,
@@ -140,6 +107,7 @@ def _estimate_rent_quantiles(prop: Property, rec: Dict[str, Any]) -> Dict[str, f
     }
 
     return predict_rent_quantiles(features)
+
 
 def _estimate_arv_quantiles(prop: Property, rec: Dict[str, Any]) -> Dict[str, float]:
     """
@@ -159,6 +127,7 @@ def _estimate_arv_quantiles(prop: Property, rec: Dict[str, Any]) -> Dict[str, fl
 
     return predict_arv_quantiles(features)
 
+
 @app.get("/top-deals", response_model=list[TopDealItem])
 def top_deals(
     zip: str = Query(..., alias="zip"),
@@ -168,13 +137,14 @@ def top_deals(
     """
     Return ranked deals for a given zip and optional price ceiling.
 
-    NEW BEHAVIOR:
-      For each property in the SQL repo, we build the SAME payload shape
-      used in scripts/debug_top_deal_sample.py and pass it through
-      services.deal_analyzer.analyze_deal(...).
+    Behavior:
 
-    This guarantees that /top-deals labels (buy/maybe/pass) and metrics
-    line up with what you see in your debug scripts and /analyze endpoint.
+    - Pulls properties from SqlPropertyRepository for the ZIP.
+    - Skips manufactured/mobile/trailer homes.
+    - Builds the same payload shape used by debug_top_deal_sample.py.
+    - Sends each through analyze_deal(), using the same rent estimator and
+      underwriting assumptions.
+    - Returns TopDealItem entries sorted descending by rank_score.
     """
     try:
         records = _property_repo.search(
@@ -192,6 +162,18 @@ def top_deals(
             continue
 
         raw = rec.get("raw") or {}
+
+        # ---------- NEW: filter out manufactured/mobile/trailer homes ----------
+        # Look at both our normalized 'property_type' and Zillow's raw 'homeType'.
+        prop_type_raw = (rec.get("property_type") or "").lower()
+        zillow_home_type = (raw.get("homeType") or "").lower()
+
+        combined = f"{prop_type_raw} {zillow_home_type}"
+
+        if "manufactured" in combined or "mobile" in combined or "trailer" in combined:
+            # Skip any obvious manufactured/mobile/trailer product.
+            continue
+        # ----------------------------------------------------------------------
 
         # Days on market pulled from raw Zillow payload if present
         dom = float(
@@ -212,6 +194,8 @@ def top_deals(
             "sqft": float(rec.get("sqft") or 0.0),
             "bedrooms": float(rec.get("beds") or raw.get("beds") or 0.0),
             "bathrooms": float(rec.get("baths") or raw.get("baths") or 0.0),
+            # Strategy can be "hold" (rental) or "flip" in the future – for now
+            # we default to hold, but the core engine (DSCR/CoC) is usable for both.
             "strategy": "hold",
             "days_on_market": dom,
         }
@@ -223,7 +207,7 @@ def top_deals(
                 rent_estimator=_rent_estimator or LightGBMRentEstimator(),
                 repo=_deal_repo,
             )
-        except Exception as e:
+        except Exception:
             # If a single property blows up, skip it rather than kill the endpoint
             continue
 
