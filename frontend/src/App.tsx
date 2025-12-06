@@ -1,8 +1,7 @@
-// frontend/src/App.tsx
-
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { TopDealsTable, type TopDealItem } from "./components/TopDealsTable";
 import { TopDealsMap } from "./components/TopDealsMap";
+import { AuctionLinksPanel } from "./components/AuctionLinksPanel";
 
 function App() {
   const [zip, setZip] = useState("48009");
@@ -134,19 +133,25 @@ function App() {
         </div>
       </section>
 
-      {/* Main Content: List + Map */}
+      {/* Main Content: List + Map + Auctions */}
       <main className="app-main">
         <section className="app-main-left">
-          <TopDealsTable
-            zip={activeZip}
-            deals={deals}
-            loading={loading}
-            error={error}
-          />
+          <div className="panel">
+            <TopDealsTable
+              zip={activeZip}
+              deals={deals}
+              loading={loading}
+              error={error}
+            />
+          </div>
         </section>
 
         <section className="app-main-right">
-          <TopDealsMap deals={deals} />
+          <div className="panel map-panel">
+            <TopDealsMap deals={deals} />
+          </div>
+
+          <AuctionLinksPanel />
         </section>
       </main>
     </div>

@@ -154,17 +154,19 @@ a {
 }
 
 .primary-button {
-  border-radius: 0.7rem;
   border: none;
+  border-radius: 999px;
   padding: 0.6rem 1.4rem;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
   background: linear-gradient(135deg, #2563eb, #1d4ed8);
   color: #ffffff;
-  box-shadow: 0 10px 25px rgba(37, 99, 235, 0.25);
-  transition: transform 0.08s ease, box-shadow 0.08s ease,
-    filter 0.08s ease;
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  transition: box-shadow 0.12s ease, transform 0.08s ease,
+    filter 0.12s ease;
 }
 
 .primary-button:hover {
@@ -226,6 +228,13 @@ a {
   min-height: 0;
 }
 
+/* Stack map + auctions on the right */
+.app-main-right {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
 /* Panels & cards */
 
 .panel {
@@ -235,7 +244,7 @@ a {
   padding: 1.1rem 1.2rem;
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* removed fixed height: let content and max-heights control it */
 }
 
 .panel-header {
@@ -259,12 +268,14 @@ a {
 
 /* Deal list */
 
+/* Make deals module fixed-height + scrollable */
 .deal-list {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
   overflow-y: auto;
   padding-right: 0.2rem;
+  max-height: 450px; /* cap the height so the module isn't huge */
 }
 
 .deal-card {
@@ -436,13 +447,112 @@ a {
 
 .map-container {
   width: 100%;
-  height: 450px;        
-  max-height: 450px;   
+  height: 450px;
+  max-height: 450px;
   border-radius: 0.75rem;
   overflow: hidden;
   border: 1px solid rgba(209, 213, 219, 0.8);
 }
 
+/* Auctions panel */
+
+.auctions-panel {
+  padding: 1rem 1.1rem;
+}
+
+.auction-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+}
+
+.auction-card {
+  border-radius: 0.75rem;
+  border: 1px solid rgba(209, 213, 219, 0.9);
+  background: #f9fafb;
+  padding: 0.7rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  transition: background 0.08s ease, border-color 0.08s ease,
+    box-shadow 0.08s ease;
+}
+
+.auction-card:hover {
+  background: #ffffff;
+  border-color: rgba(37, 99, 235, 0.45);
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.16);
+}
+
+.auction-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.auction-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.auction-description {
+  font-size: 0.8rem;
+  color: #4b5563;
+}
+
+.auction-notes {
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+
+.auction-notes-label {
+  font-weight: 500;
+}
+
+.auction-url-hint {
+  font-size: 0.75rem;
+  color: #2563eb;
+  margin-top: 0.05rem;
+}
+
+/* Auction chips by category */
+
+.auction-chip {
+  border-radius: 999px;
+  padding: 0.12rem 0.6rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.auction-chip-foreclosure {
+  background: rgba(37, 99, 235, 0.08);
+  color: #1d4ed8;
+  border: 1px solid rgba(37, 99, 235, 0.3);
+}
+
+.auction-chip-taxsale {
+  background: rgba(245, 158, 11, 0.08);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.auction-chip-online {
+  background: rgba(16, 185, 129, 0.08);
+  color: #047857;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.auction-chip-regional {
+  background: rgba(107, 114, 128, 0.08);
+  color: #374151;
+  border: 1px solid rgba(107, 114, 128, 0.35);
+}
 
 /* Responsive */
 
