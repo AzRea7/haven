@@ -1,0 +1,51 @@
+# .github/workflows/nightly-pipeline.yml
+
+name: Nightly Haven Pipeline
+
+on:
+  schedule:
+    # Every day at 07:00 UTC (adjust as needed)
+    - cron: "0 7 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  nightly-pipeline:
+    runs-on: ubuntu-latest
+
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      - name: Run model training
+        run: |
+          make train
+
+      - name: Run model evaluation
+        run: |
+          make eval
+
+      - name: Build metrics snapshot
+        run: |
+          python -m entrypoints.cli.pipeline metrics-snapshot || true
+
+      - name: Upload reports as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: haven-reports
+          path: |
+            data/reports
+          if-no-files-found: ignore

@@ -96,9 +96,6 @@ class HasDataZillowPropertySource(PropertySource):
             if max_price is not None:
                 params["price.max"] = int(max_price)
 
-            # Start simple: do NOT send homeTypes until we confirm shape.
-            # If you want to enable later, uncomment & match docs exactly.
-
             resp = self.s.get(
                 HASDATA_ZILLOW_LISTING_URL,
                 headers=HEADERS,
@@ -106,6 +103,7 @@ class HasDataZillowPropertySource(PropertySource):
                 timeout=40,
             )
 
+            # 429: rate-limited, backoff and retry same page
             if resp.status_code == 429:
                 logger.warning(
                     "hasdata_rate_limited",
@@ -114,8 +112,27 @@ class HasDataZillowPropertySource(PropertySource):
                 time.sleep(self.pause * 2)
                 continue
 
+            # 400: HasData often sends this when they can't fulfill the page.
+            # Treat it as "no more usable pages" instead of crashing ingest.
+            if resp.status_code == 400:
+                logger.error(
+                    "hasdata_listing_error",
+                    extra={
+                        "context": {
+                            "status": resp.status_code,
+                            "url": resp.url,
+                            "body": resp.text[:500],
+                        }
+                    },
+                )
+                logger.warning(
+                    "hasdata_stop_pagination_on_400",
+                    extra={"context": {"page": page, "zip": zipcode}},
+                )
+                break  # stop paging for this ZIP, keep what we have
+
+            # Other 4xx/5xx are real failures: raise
             if resp.status_code >= 400:
-                # Log body for debugging instead of silent 500 confusion
                 logger.error(
                     "hasdata_listing_error",
                     extra={
@@ -183,6 +200,7 @@ class HasDataZillowPropertySource(PropertySource):
             extra={"context": {"zip": zipcode, "count": len(results)}},
         )
         return results
+
 
     # --------- internal helpers ---------
 

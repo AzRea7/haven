@@ -2,96 +2,102 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Mapping, Iterable
+from typing import Any, Dict, List
 
+import joblib
 import numpy as np
 
-from .config import config
-from .logging_utils import get_logger
-from .model_io import safe_load
+from haven.adapters.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
 
-DEFAULT_FLIP_MODEL_PATH = "models/flip_logit_calibrated.joblib"
-
-
 class FlipClassifier:
     """
-    Thin wrapper around a calibrated sklearn classifier.
+    Thin wrapper around a LightGBM binary classifier trained by
+    entrypoints/cli/audit_flip_classifier.py.
 
-    Expected artifact:
-      - Trained + calibrated classifier saved via joblib.
-      - Optionally has `feature_names_in_` for deterministic column order.
+    Expects a joblib bundle with keys:
+      - "feature_names": List[str]
+      - "model": sklearn-compatible classifier with predict_proba
     """
 
-    def __init__(self, model_path: str | None = None) -> None:
-        # Try (in order):
-        #   1. explicit model_path arg
-        #   2. HAVEN_FLIP_MODEL_PATH / config.FLIP_MODEL_PATH
-        #   3. default path under ./models
-        mp = (
-            model_path
-            or getattr(config, "FLIP_MODEL_PATH", None)
-            or DEFAULT_FLIP_MODEL_PATH
-        )
-        self.model_path = mp
-        self.model = safe_load(mp)
+    def __init__(
+        self,
+        model_path: str | Path = "models/flip_classifier_lgb.joblib",
+    ) -> None:
+        self.model_path = Path(model_path)
+        self.is_ready: bool = False
+        self.feature_names: List[str] = []
+        self.model: Any | None = None
+        self._load()
 
-        if self.model is None:
-            logger.warning(
-                "flip_classifier_not_loaded",
-                extra={"context": {"path": mp}},
-            )
-        else:
+    def _load(self) -> None:
+        if not self.model_path.exists():
             logger.info(
-                "flip_classifier_loaded",
-                extra={"context": {"path": mp}},
+                "flip_classifier_model_missing",
+                extra={"path": str(self.model_path)},
             )
+            return
 
-    @property
-    def is_ready(self) -> bool:
-        return self.model is not None
-
-    def _vectorize(self, features: Mapping[str, float]) -> np.ndarray:
-        m = self.model
-        if m is None:
-            # Caller will treat probability as neutral if model isn't ready
-            return np.zeros((1, 1), dtype=float)
-
-        # If the model exposes feature_names_in_, respect it.
-        cols: Iterable[str]
-        if hasattr(m, "feature_names_in_"):
-            cols = list(m.feature_names_in_)  # type: ignore[attr-defined]
-        else:
-            # Fallback: sorted keys from features.
-            cols = sorted(features.keys())
-
-        row = [float(features.get(c, 0.0)) for c in cols]
-        return np.asarray([row], dtype=float)
-
-    def predict_proba_one(self, features: Mapping[str, float]) -> float:
-        """
-        Return probability that this property is a 'good flip' in [0, 1].
-
-        If no model is loaded, returns 0.5 so callers can treat it as neutral.
-        """
-        if self.model is None:
-            return 0.5
-
-        x = self._vectorize(features)
         try:
-            proba = self.model.predict_proba(x)[0, 1]
-        except Exception as e:
-            logger.warning(
-                "flip_classifier_predict_failed",
-                extra={"context": {"error": str(e)}},
+            bundle = joblib.load(self.model_path)
+        except Exception as exc:
+            logger.exception(
+                "flip_classifier_load_failed",
+                extra={"path": str(self.model_path), "error": str(exc)},
             )
-            return 0.5
+            return
 
-        p = float(proba)
+        self.model = bundle.get("model")
+        feature_names = bundle.get("feature_names") or []
+
+        if self.model is None or not feature_names:
+            logger.warning(
+                "flip_classifier_bundle_invalid",
+                extra={"path": str(self.model_path)},
+            )
+            return
+
+        self.feature_names = list(feature_names)
+        self.is_ready = True
+
         logger.info(
-            "flip_classifier_scored",
-            extra={"context": {"p_good": p}},
+            "flip_classifier_loaded",
+            extra={
+                "path": str(self.model_path),
+                "n_features": len(self.feature_names),
+            },
         )
-        return p
+
+    def predict_proba_one(self, features: Dict[str, float]) -> float | None:
+        """
+        Predict probability that a given deal is a "good flip".
+
+        Parameters
+        ----------
+        features:
+            Dict with keys matching the feature_names used during training.
+            Missing features are filled with 0.0.
+
+        Returns
+        -------
+        Probability in [0,1] or None on failure.
+        """
+        if not self.is_ready or self.model is None:
+            return None
+
+        try:
+            row = np.array(
+                [[float(features.get(name, 0.0)) for name in self.feature_names]],
+                dtype=float,
+            )
+
+            proba = self.model.predict_proba(row)[0, 1]
+            return float(proba)
+        except Exception as exc:
+            logger.exception(
+                "flip_classifier_predict_failed",
+                extra={"error": str(exc)},
+            )
+            return None

@@ -1,5 +1,3 @@
-// frontend/src/components/TopDealsMap.tsx
-
 import React, { useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Tooltip } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -36,6 +34,26 @@ type Props = {
   selectedDealId?: string | null;
   onSelectDeal?: (id: string | null) => void;
 };
+
+function formatMoney(value: number): string {
+  if (!Number.isFinite(value)) return "-";
+  return value.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+}
+
+/**
+ * Same key logic as TopDealsTable so selection stays in sync.
+ */
+function dealKey(deal: TopDealItem): string {
+  return (
+    deal.id ||
+    deal.external_id ||
+    `${deal.address}-${deal.zipcode}-${deal.list_price}`
+  );
+}
 
 export function TopDealsMap({ deals, selectedDealId, onSelectDeal }: Props) {
   const geoDeals = useMemo(
@@ -81,15 +99,16 @@ export function TopDealsMap({ deals, selectedDealId, onSelectDeal }: Props) {
           />
 
           {geoDeals.map((deal) => {
-            const isSelected = selectedDealId === deal.id;
+            const key = dealKey(deal);
+            const isSelected = selectedDealId === key;
+
             return (
               <Marker
-                key={deal.id}
+                key={key}
                 position={[deal.lat as number, deal.lon as number]}
                 icon={isSelected ? SelectedIcon : DefaultIcon}
                 eventHandlers={{
-                  click: () =>
-                    onSelectDeal?.(isSelected ? null : (deal.id as string)),
+                  click: () => onSelectDeal?.(isSelected ? null : key),
                 }}
               >
                 <Tooltip direction="top" offset={[0, -10]}>
@@ -115,13 +134,4 @@ export function TopDealsMap({ deals, selectedDealId, onSelectDeal }: Props) {
       </div>
     </>
   );
-}
-
-function formatMoney(value: number): string {
-  if (!Number.isFinite(value)) return "-";
-  return value.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  });
 }

@@ -1,9 +1,9 @@
-// frontend/src/components/TopDealsTable.tsx
-
 import React from "react";
 
 export type TopDealItem = {
-  id: string;
+  id?: string; // may be undefined if backend doesn't send it
+  external_id?: string;
+
   address: string;
   city: string;
   state: string;
@@ -84,6 +84,21 @@ function labelText(label: TopDealItem["label"]): string {
   }
 }
 
+/**
+ * Stable unique key for React + selection.
+ * Uses:
+ *   1) id if present
+ *   2) external_id if present
+ *   3) address+zip+price as a fallback
+ */
+function dealKey(deal: TopDealItem): string {
+  return (
+    deal.id ||
+    deal.external_id ||
+    `${deal.address}-${deal.zipcode}-${deal.list_price}`
+  );
+}
+
 /* ---------- main component ---------- */
 
 export function TopDealsTable({
@@ -150,10 +165,12 @@ export function TopDealsTable({
 
       <div className="deal-list">
         {deals.map((deal) => {
-          const isSelected = selectedDealId === deal.id;
+          const key = dealKey(deal);
+          const isSelected = selectedDealId === key;
+
           return (
             <div
-              key={deal.id}
+              key={key}
               className="deal-card"
               style={
                 isSelected
@@ -163,9 +180,7 @@ export function TopDealsTable({
                     }
                   : undefined
               }
-              onClick={() =>
-                onSelectDeal?.(isSelected ? null : (deal.id as string))
-              }
+              onClick={() => onSelectDeal?.(isSelected ? null : key)}
             >
               {/* price + label row */}
               <div className="deal-card-price-row">

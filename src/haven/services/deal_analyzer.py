@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import pandas as pd
+
+from haven.adapters.arv_quantile_bundle import predict_arv_quantiles
+from haven.features.common_features import build_property_features
 from haven.adapters.config import config
 from haven.adapters.logging_utils import get_logger
 from haven.adapters.rent_estimator_lightgbm import LightGBMRentEstimator
@@ -14,6 +18,7 @@ from haven.domain.assumptions import UnderwritingAssumptions
 from haven.domain.ports import DealRepository, RentEstimator
 from haven.domain.property import Property, Unit
 from haven.services.validation import validate_and_prepare_payload
+from haven.services.guardrails import apply_guardrails
 
 logger = get_logger(__name__)
 
@@ -56,7 +61,6 @@ def _fill_missing_rents(
         except (TypeError, ValueError):
             return default
 
-    # --- Debug: what the Property currently looks like ---
     logger.info(
         "fill_missing_rents_start",
         extra={
@@ -153,7 +157,7 @@ def _compute_flip_probability(finance: dict[str, Any], payload: dict[str, Any]) 
 
     try:
         features = {
-            # Must align with features used in scripts/train_flip.py
+            # Must align with features used in scripts/train_flip.py OR audit_flip_classifier
             "dscr": float(finance.get("dscr", 0.0)),
             "cash_on_cash_return": float(finance.get("cash_on_cash_return", 0.0)),
             "breakeven_occupancy_pct": float(
@@ -225,6 +229,8 @@ def analyze_deal(
         * score: new risk-adjusted score (score_property) + suggestion + rank_score
         * score_legacy: old-style score_deal output
         * flip_p_good: optional flip classifier probability
+        * arv_q: ARV quantiles from LightGBM bundle
+        * guardrails: simple sanity flags
     """
     # 1. Validate + normalize + apply defaults
     payload = validate_and_prepare_payload(raw_payload)
@@ -278,23 +284,57 @@ def analyze_deal(
     # 7. Flip probability (optional)
     flip_p = _compute_flip_probability(finance, payload)
 
-    # 8. New risk-adjusted score (may or may not already include rank_score)
-    dom = float(payload.get("days_on_market") or 0.0)
-    strategy = payload.get("strategy") or "hold"
+    # 8. ARV quantiles from the LightGBM bundle (if available)
+    arv_q: dict[str, float] | None = None
+    try:
+        list_price = float(payload.get("list_price") or 0.0)
+        sqft_val = float(payload.get("sqft") or 0.0)
+        beds = float(payload.get("bedrooms") or 0.0)
+        baths = float(payload.get("bathrooms") or 0.0)
+        year_built_val = payload.get("year_built") or getattr(prop, "year_built", None)
+        year_built = float(year_built_val) if year_built_val is not None else 0.0
 
+        arv_base_df = pd.DataFrame(
+            [
+                {
+                    "list_price": list_price,
+                    "sqft": sqft_val,
+                    "bedrooms": beds,
+                    "bathrooms": baths,
+                    "year_built": year_built,
+                    "zipcode": str(prop.zipcode),
+                    "property_type": prop.property_type,
+                }
+            ]
+        )
+
+        arv_features_df = build_property_features(arv_base_df)
+        arv_features = {
+            k: float(v) for k, v in arv_features_df.iloc[0].to_dict().items()
+        }
+
+        # Also set a 'base' value so predict_arv_quantiles can fall back gracefully
+        arv_features.setdefault("base", list_price)
+
+        arv_q = predict_arv_quantiles(arv_features)
+    except Exception as exc:
+        logger.exception("arv_quantile_inference_failed", exc_info=exc)
+        arv_q = None
+
+    # 9. Rank / score using ARV quantiles
+        # 7. Rank / score using ARV quantiles
+    # score_property currently only takes (finance, arv_q, rent_q)
     score_new = score_property(
         finance=finance,
-        arv_q=None,  # hook ARV quantiles here later
-        rent_q=None,  # hook rent quantiles here later
-        dom=dom,
-        strategy=strategy,
-        flip_p_good=flip_p,
+        arv_q=arv_q,
+        rent_q=None,
     )
+
 
     # Attach suggestion + ensure rank_score present
     score_with_suggestion = _attach_suggestion_and_rank(score_new, finance)
 
-    # 9. Legacy score for debugging/backwards compatibility
+    # 10. Legacy score for debugging/backwards compatibility
     score_legacy = score_deal(finance)
 
     result: dict[str, Any] = {
@@ -310,11 +350,15 @@ def analyze_deal(
         "score": score_with_suggestion,
         "score_legacy": score_legacy,
         "flip_p_good": flip_p,
+        "arv_q": arv_q,
     }
+
+    # 11. Guardrails (sanity flags)
+    result = apply_guardrails(payload=payload, result=result)
 
     logger.info("deal_analyzed", extra={"context": result})
 
-    # 10. Persist if repo provided
+    # 12. Persist if repo provided
     deal_id: int | None = None
     if repo is not None:
         deal_id = repo.save_analysis(result, raw_payload)
