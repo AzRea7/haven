@@ -72,6 +72,76 @@ const MI_AUCTIONS: AuctionLink[] = [
       "Michigan-based online auction company handling residential, commercial, and land auctions.",
     notes: "Good regional source; check upcoming auction calendar.",
   },
+  {
+    id: "tax-sale-info",
+    name: "Tax-Sale.info – Michigan County Tax Foreclosures",
+    url: "https://www.tax-sale.info",
+    category: "tax_sale",
+    description:
+      "Primary auction platform for Michigan county tax-foreclosure sales. Nearly all MI counties run their official auctions here.",
+    notes:
+      "Most trustworthy Michigan tax-deed source. Must-know for serious MI investors.",
+  },
+  {
+    id: "govdeals",
+    name: "GovDeals – Government Real Estate & Land",
+    url: "https://www.govdeals.com/realestate",
+    category: "tax_sale",
+    description:
+      "Government surplus and real-property auctions, occasionally including tax-defaulted land parcels.",
+    notes:
+      "Useful for odd lots, land deals, and government sales occasionally tied to delinquent tax cases.",
+  },
+  {
+    id: "realauction",
+    name: "RealAuction – Tax Lien & Foreclosure Auctions",
+    url: "https://www.realauction.com",
+    category: "tax_sale",
+    description:
+      "Platform used by many U.S. counties for tax lien and tax deed auctions. Not primarily used in Michigan but relevant for regional investors.",
+    notes:
+      "Good to monitor if you invest across state lines or target lien-to-deed pipeline opportunities.",
+  },
+  {
+    id: "lienhub",
+    name: "LienHub – Tax Lien Certificate Marketplace",
+    url: "https://www.lienhub.com",
+    category: "tax_sale",
+    description:
+      "National tax lien certificate marketplace. Michigan does not sell liens, but investors may track nearby-state opportunities.",
+    notes:
+      "Useful only if you invest outside Michigan; included for completeness.",
+  },
+  {
+    id: "xome",
+    name: "Xome – Real Estate Auctions",
+    url: "https://www.xome.com/auctions",
+    category: "online_marketplace",
+    description:
+      "Large national auction marketplace featuring foreclosures, bank-owned REOs, short sales, and investor properties.",
+    notes:
+      "Reliable data and strong bidding platform; filter by Michigan ZIP for statewide opportunities.",
+  },
+  {
+    id: "servicelink",
+    name: "ServiceLink Auction – Foreclosures & REOs",
+    url: "https://www.servicelinkauction.com/",
+    category: "foreclosure_marketplace",
+    description:
+      "Backed by Fidelity National; major foreclosure auction platform used by large lenders and servicers.",
+    notes:
+      "High-trust source for REO and foreclosure inventory; frequently updated Michigan listings.",
+  },
+  {
+    id: "bid4assets",
+    name: "Bid4Assets – Tax-Foreclosure Auctions",
+    url: "https://www.bid4assets.com",
+    category: "tax_sale",
+    description:
+      "Major platform used by Michigan counties to auction tax-foreclosed real estate. Transparent rules and official county partnerships.",
+    notes:
+      "Essential site for Michigan tax-deed auctions, including Wayne County and Detroit.",
+  },
 ];
 
 function categoryLabel(category: AuctionLinkCategory): string {
