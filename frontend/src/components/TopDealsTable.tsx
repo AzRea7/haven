@@ -99,6 +99,28 @@ function dealKey(deal: TopDealItem): string {
   );
 }
 
+/**
+ * Build a Zillow listing URL from the deal.
+ *
+ * We assume:
+ *  - external_id is the Zillow zpid (from HasData)
+ *  - source contains "zillow" for Zillow-backed data
+ *
+ * Zillow will resolve URLs of the form:
+ *   https://www.zillow.com/homedetails/<ZPID>_zpid/
+ */
+function buildZillowUrl(deal: TopDealItem): string | null {
+  if (!deal.external_id) return null;
+
+  const source = (deal.source || "").toLowerCase();
+  if (!source.includes("zillow")) {
+    // Unknown or non-Zillow source – don't try to build a URL
+    return null;
+  }
+
+  return `https://www.zillow.com/homedetails/${deal.external_id}_zpid/`;
+}
+
 /* ---------- main component ---------- */
 
 export function TopDealsTable({
@@ -168,19 +190,31 @@ export function TopDealsTable({
           const key = dealKey(deal);
           const isSelected = selectedDealId === key;
 
+          const handleClick = () => {
+            // keep selection behavior for map highlighting
+            onSelectDeal?.(isSelected ? null : key);
+
+            // open Zillow listing in new tab if we can build a URL
+            const url = buildZillowUrl(deal);
+            if (!isSelected && url) {
+              window.open(url, "_blank", "noopener,noreferrer");
+            }
+          };
+
           return (
             <div
               key={key}
               className="deal-card"
-              style={
-                isSelected
+              style={{
+                ...(isSelected
                   ? {
                       borderColor: "rgba(37,99,235,0.6)",
                       boxShadow: "0 16px 40px rgba(37,99,235,0.18)",
                     }
-                  : undefined
-              }
-              onClick={() => onSelectDeal?.(isSelected ? null : key)}
+                  : {}),
+                cursor: buildZillowUrl(deal) ? "pointer" : "default",
+              }}
+              onClick={handleClick}
             >
               {/* price + label row */}
               <div className="deal-card-price-row">

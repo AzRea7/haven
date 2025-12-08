@@ -1,0 +1,4 @@
+# file: C:\Users\austin\haven\haven\src\haven\analysis\valuation.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.07, 200.0, 'apartment_complex', 'ask_price', 'fair_value_estimate', 'noi_annual', 'price_delta', 'price_delta_pct']

@@ -1,0 +1,4 @@
+# file: C:\Users\austin\haven\haven\src\haven\services\guardrails.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.5, 1.0, 3.0, 'ARV_TOO_HIGH', 'ARV_TOO_LOW', 'DSCR_BELOW_ONE', 'LIST_ABOVE_MAO', 'LIST_PRICE_MISSING', 'NEGATIVE_PROFIT_P50', 'REHAB_EXCEEDS_ARV', 'arv', 'arv_est', 'arv_estimate', 'arv_median', 'arv_p50', 'ask_price', 'code', 'context', 'dscr', 'error', 'finance', 'flags', 'guardrails', 'has_flags', 'list_price', 'mao_p50', 'message', 'pricing', 'profit_p50', 'ratio', 'rehab_budget', 'rehab_total', 'severity', 'warning']

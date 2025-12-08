@@ -1,0 +1,4 @@
+# file: C:\Users\austin\haven\haven\src\haven\analysis\scoring.py
+# hypothesis_version: 6.148.7
+
+[-100.0, -40.0, -30.0, -25.0, -20.0, -15.0, -10.0, 0.0, 1e-09, 0.03, 0.05, 0.1, 0.4, 0.5, 0.9, 1.0, 1.15, 1.3, 1.5, 15.0, 25.0, 40.0, 45.0, 100.0, 180.0, 200.0, 450, 600, 1960, 'buy', 'cash_on_cash_return', 'days_on_market', 'dscr', 'flip', 'hold', 'label', 'maybe', 'pass', 'q10', 'q50', 'rank_score', 'reason', 'sqft', 'year_built']

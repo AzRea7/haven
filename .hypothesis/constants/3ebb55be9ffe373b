@@ -1,0 +1,4 @@
+# file: C:\Users\austin\haven\haven\src\haven\adapters\config.py
+# hypothesis_version: 6.148.7
+
+[0.03, 0.05, 0.08, 0.1, 1.0, 1.2, 100.0, '%', '1', 'CAPEX_RATE', 'HAVEN_', 'INFO', 'MAINTENANCE_RATE', 'MIN_DSCR_GOOD', 'PROPERTY_MGMT_RATE', 'VACANCY_RATE', 'before', 'dev', 'ignore', 'on', 'sqlite:///haven.db', 'true', 'y', 'yes']

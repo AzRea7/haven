@@ -1,0 +1,4 @@
+# file: C:\Users\austin\haven\haven\src\haven\adapters\rent_quantile_bundle.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.1, 'RENT_QUANTILE_PATH', 'base', 'feature_cols', 'q10', 'q50', 'q90', 'rb']

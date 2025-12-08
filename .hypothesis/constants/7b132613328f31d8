@@ -1,0 +1,4 @@
+# file: C:\Users\austin\haven\haven\src\haven\features\common_features.py
+# hypothesis_version: 6.148.7
+
+['actual_rent', 'actual_roi', 'category', 'coerce', 'int32', 'is_good_flip', 'list_price', 'property_type', 'property_type_code', 'psf', 'sold_price', 'sqft', 'target_arv', 'target_rent', 'year_built', 'zipcode', 'zipcode_code', 'zipcode_str']

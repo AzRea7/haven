@@ -1,0 +1,4 @@
+# file: C:\Users\austin\haven\haven\src\haven\domain\rules.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.8, 1.0, 2.0, 'buy', 'high', 'low', 'maybe', 'medium', 'p10', 'p50', 'p90', 'pass']

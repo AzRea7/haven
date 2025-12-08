@@ -1,0 +1,4 @@
+# file: C:\Users\austin\haven\haven\src\haven\services\validation.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.065, 0.25, 1.0, 100.0, 1200.0, 3000.0, '%', 'address', 'city', 'down_payment_pct', 'est_market_rent', 'hoa_monthly', 'insurance_annual', 'interest_rate_annual', 'list_price', 'loan_term_years', 'property_type', 'sqft', 'state', 'taxes_annual', 'zipcode']

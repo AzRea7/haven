@@ -1,0 +1,4 @@
+# file: C:\Users\austin\haven\haven\src\haven\services\deal_analyzer.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.95, 1.05, 1.15, 5.0, 50.0, 1500.0, 'ARV', 'address', 'arv_q', 'base', 'bathrooms', 'bedrooms', 'building_sqft', 'buy', 'cash_on_cash_return', 'city', 'context', 'days_on_market', 'deal_analyzed', 'deal_id', 'dscr', 'error', 'est_market_rent', 'finance', 'flip_p_good', 'gross_rent', 'has_units', 'is_ready', 'label', 'list_price', 'living_area', 'market_rent', 'maybe', 'maybe (low DSCR)', 'maybe negotiate', 'medium', 'monthly_rent', 'name', 'num_bathrooms', 'num_bedrooms', 'p10', 'p50', 'p90', 'pass', 'price', 'pricing', 'property_type', 'quantiles', 'rank_score', 'rent', 'rental', 'sanitize_quantiles', 'score', 'score_legacy', 'sqft', 'sqlite:///haven.db', 'state', 'strategy', 'suggestion', 'unit_after_rent_fill', 'units', 'versions', 'year_built', 'zipcode']

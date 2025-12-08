@@ -1,0 +1,4 @@
+# file: C:\Users\austin\haven\haven\src\haven\analysis\finance.py
+# hypothesis_version: 6.148.7
+
+[0.0, 12.0, 'cap_rate', 'capex_monthly', 'cash_on_cash_return', 'down_payment', 'dscr', 'gross_rent_monthly', 'hoa_monthly', 'insurance_monthly', 'loan_amount', 'maintenance_monthly', 'mgmt_monthly', 'mortgage_monthly', 'noi_annual', 'noi_monthly', 'purchase_price', 'taxes_monthly', 'vacancy_loss_monthly']

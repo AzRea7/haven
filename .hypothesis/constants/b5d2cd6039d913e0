@@ -1,0 +1,4 @@
+# file: C:\Users\austin\haven\haven\src\haven\adapters\logging_utils.py
+# hypothesis_version: 6.148.7
+
+['context', 'level', 'logger', 'message', 'ts']

@@ -4,6 +4,8 @@ from typing import Any
 
 import pandas as pd
 
+from types import SimpleNamespace
+
 from haven.adapters.arv_quantile_bundle import predict_arv_quantiles
 from haven.features.common_features import build_property_features
 from haven.adapters.config import config
@@ -19,6 +21,9 @@ from haven.domain.ports import DealRepository, RentEstimator
 from haven.domain.property import Property, Unit
 from haven.services.validation import validate_and_prepare_payload
 from haven.services.guardrails import apply_guardrails
+from haven.domain.underwriting import DealEvaluation
+from haven.domain.finance import build_scenario_metrics
+from haven.domain.rules import apply_rules
 
 logger = get_logger(__name__)
 
@@ -212,6 +217,55 @@ def _attach_suggestion_and_rank(score: dict, finance: dict) -> dict:
 
     return s
 
+def _normalize_payload_for_underwriting(
+    payload: dict[str, Any],
+) -> SimpleNamespace:
+    """
+    Wrap validate_and_prepare_payload so underwriting logic can work with attributes
+    instead of raw dicts.
+    """
+    cleaned = validate_and_prepare_payload(payload)
+    return SimpleNamespace(**cleaned)
+
+
+def _sanitize_quantiles(
+    q: dict[str, float] | None,
+    name: str,
+    fallback: float,
+) -> dict[str, float]:
+    """
+    Ensure a quantile dict always has p10/p50/p90 and no obvious NaNs.
+    If the bundle is missing or partially broken, fall back to a tight band
+    around the fallback value.
+    """
+    if q is None:
+        base = float(fallback)
+        return {"p10": base * 0.95, "p50": base, "p90": base * 1.05}
+
+    out: dict[str, float] = {}
+    for k in ("p10", "p50", "p90"):
+        v = q.get(k)
+        try:
+            v_f = float(v)
+        except (TypeError, ValueError):
+            v_f = float(fallback)
+        if not pd.notna(v_f):
+            v_f = float(fallback)
+        out[k] = v_f
+
+    # Ensure ordering p10 <= p50 <= p90
+    p10 = out["p10"]
+    p50 = max(out["p50"], p10)
+    p90 = max(out["p90"], p50)
+    out["p10"], out["p50"], out["p90"] = p10, p50, p90
+
+    logger.info(
+        "sanitize_quantiles",
+        extra={"name": name, "quantiles": out},
+    )
+    return out
+
+
 
 def analyze_deal(
     raw_payload: dict[str, Any],
@@ -367,6 +421,85 @@ def analyze_deal(
         result["deal_id"] = deal_id
 
     return result
+
+def evaluate_deal(
+    raw_payload: dict[str, Any],
+    config_obj: Any,
+    models: Any,
+) -> DealEvaluation:
+    """
+    Canonical underwriting evaluation:
+      - normalize payload
+      - predict ARV & rent quantiles
+      - build downside/base/upside scenarios
+      - apply rules to assign label/risk_tier/confidence
+
+    This returns a structured DealEvaluation object, which you can then
+    serialize into the API / UI however you like.
+    """
+
+    # 1. Normalize inputs (attributes form)
+    norm = _normalize_payload_for_underwriting(raw_payload)
+
+    # 2. Predict ARV & rent quantiles using the provided models bundle
+    #    models.arv and models.rent must expose predict_quantiles(norm) or similar.
+    arv_q_raw = models.arv.predict_quantiles(norm)
+    rent_q_raw = models.rent.predict_quantiles(norm)
+
+    # Use list_price and a simple rent heuristic as fallbacks
+    base_price = float(getattr(norm, "list_price", 0.0))
+    base_rent_fallback = float(getattr(norm, "est_market_rent", 0.0) or 0.0)
+
+    arv_q = _sanitize_quantiles(arv_q_raw, "ARV", fallback=base_price)
+    rent_q = _sanitize_quantiles(
+        rent_q_raw,
+        "rent",
+        fallback=base_rent_fallback if base_rent_fallback > 0 else 1500.0,
+    )
+
+    # 3. Build downside/base/upside scenarios using finance math
+    downside = build_scenario_metrics(
+        norm,
+        arv=arv_q["p10"],
+        rent=rent_q["p10"],
+        config=config_obj.finance,
+    )
+    base = build_scenario_metrics(
+        norm,
+        arv=arv_q["p50"],
+        rent=rent_q["p50"],
+        config=config_obj.finance,
+    )
+    upside = build_scenario_metrics(
+        norm,
+        arv=arv_q["p90"],
+        rent=rent_q["p90"],
+        config=config_obj.finance,
+    )
+
+    # 4. Build DealEvaluation and apply rules
+    eval_obj = DealEvaluation(
+        address=getattr(norm, "address", ""),
+        city=getattr(norm, "city", ""),
+        state=getattr(norm, "state", ""),
+        zipcode=str(getattr(norm, "zipcode", "")),
+        list_price=float(getattr(norm, "list_price", 0.0)),
+        strategy=getattr(norm, "strategy", "rental"),
+        downside=downside,
+        base=base,
+        upside=upside,
+        arv_quantiles=arv_q,
+        rent_quantiles=rent_q,
+        model_versions=getattr(models, "versions", {}),
+        label="maybe",          # rules will override
+        risk_tier="medium",
+        confidence=0.0,
+        warnings=[],
+        hard_flags=[],
+    )
+
+    eval_obj = apply_rules(eval_obj, config_obj.rules)
+    return eval_obj
 
 
 def analyze_deal_with_defaults(raw_payload: dict[str, Any]) -> dict[str, Any]:

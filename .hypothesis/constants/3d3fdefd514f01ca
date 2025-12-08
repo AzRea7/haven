@@ -1,0 +1,4 @@
+# file: C:\Users\austin\haven\haven\src\haven\domain\property.py
+# hypothesis_version: 6.148.7
+
+[0.0, 1.0, '0.25 means 25% down', 'apartment_complex', 'apartment_unit', 'condo_townhome', 'down_payment_pct', 'duplex_4plex', 'single_family']

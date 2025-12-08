@@ -1,0 +1,4 @@
+# file: C:\Users\austin\haven\haven\src\haven\adapters\rent_estimator_lightgbm.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.5, 0.8, 1.0, 'alphas', 'bathrooms', 'bedrooms', 'feature_names', 'is_ready', 'model_not_ready', 'models', 'path', 'property_type', 'reason', 'rent_model_loaded', 'rent_model_not_found', 'single_family', 'sqft', 'zipcode']

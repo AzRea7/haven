@@ -1,0 +1,4 @@
+# file: C:\Users\austin\haven\haven\src\haven\adapters\sql_repo.py
+# hypothesis_version: 6.148.7
+
+[0.0, 200, 'address', 'baths', 'beds', 'city', 'deals', 'external_id', 'lat', 'list_price', 'lon', 'properties', 'property_type', 'raw', 'source', 'sqft', 'sqlite:///haven.db', 'state', 'year_built', 'zillow_hasdata', 'zipcode']

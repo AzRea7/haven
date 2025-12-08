@@ -133,6 +133,8 @@ def top_deals(
     zip: str = Query(..., alias="zip"),
     max_price: float | None = Query(None),
     limit: int = Query(50, ge=1, le=500),
+    # NEW: strategy toggle – external API uses 'rental' / 'flip'
+    strategy: str = Query("rental", regex="^(rental|flip)$"),
 ) -> list[TopDealItem]:
     """
     Return ranked deals for a given zip and optional price ceiling.
@@ -144,8 +146,15 @@ def top_deals(
     - Builds the same payload shape used by debug_top_deal_sample.py.
     - Sends each through analyze_deal(), using the same rent estimator and
       underwriting assumptions.
+    - Uses the 'strategy' parameter to choose between rental / flip scoring.
     - Returns TopDealItem entries sorted descending by rank_score.
     """
+
+    # Map external strategy to internal engine strategy
+    # 'rental' -> 'hold' (buy-and-hold rental)
+    # 'flip'   -> 'flip' (ARV / spread / short hold)
+    internal_strategy = "hold" if strategy == "rental" else "flip"
+
     try:
         records = _property_repo.search(
             zipcode=zip,
@@ -163,17 +172,13 @@ def top_deals(
 
         raw = rec.get("raw") or {}
 
-        # ---------- NEW: filter out manufactured/mobile/trailer homes ----------
-        # Look at both our normalized 'property_type' and Zillow's raw 'homeType'.
+        # ---------- filter out manufactured/mobile/trailer homes ----------
         prop_type_raw = (rec.get("property_type") or "").lower()
         zillow_home_type = (raw.get("homeType") or "").lower()
-
         combined = f"{prop_type_raw} {zillow_home_type}"
-
         if "manufactured" in combined or "mobile" in combined or "trailer" in combined:
-            # Skip any obvious manufactured/mobile/trailer product.
             continue
-        # ----------------------------------------------------------------------
+        # ------------------------------------------------------------------
 
         # Days on market pulled from raw Zillow payload if present
         dom = float(
@@ -183,7 +188,7 @@ def top_deals(
             or 0.0
         )
 
-        # Build payload exactly like debug_top_deal_sample.py does
+        # Build payload for underwriting / scoring
         payload: dict[str, Any] = {
             "address": rec["address"],
             "city": rec["city"],
@@ -194,9 +199,8 @@ def top_deals(
             "sqft": float(rec.get("sqft") or 0.0),
             "bedrooms": float(rec.get("beds") or raw.get("beds") or 0.0),
             "bathrooms": float(rec.get("baths") or raw.get("baths") or 0.0),
-            # Strategy can be "hold" (rental) or "flip" in the future – for now
-            # we default to hold, but the core engine (DSCR/CoC) is usable for both.
-            "strategy": "hold",
+            # Strategy drives the rules / scoring inside the engine
+            "strategy": internal_strategy,
             "days_on_market": dom,
         }
 

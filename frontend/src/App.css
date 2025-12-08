@@ -40,3 +40,13 @@
 .read-the-docs {
   color: #888;
 }
+
+.deal-card {
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.deal-card:hover {
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+}

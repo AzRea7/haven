@@ -1,0 +1,4 @@
+# file: C:\Users\austin\haven\haven\src\haven\api\http.py
+# hypothesis_version: 6.148.7
+
+[0.0, 0.065, 0.25, 1200.0, 3000.0, 100, 400, 404, 500, 10000, '/analyze', '/analyze2', '/deals', '/deals/{deal_id}', '/top-deals', 'address', 'base', 'bathrooms', 'baths', 'bedrooms', 'beds', 'cash_on_cash_return', 'city', 'daysOnZillow', 'days_on_market', 'deal not found', 'deal_id', 'dom', 'dscr', 'external_id', 'finance', 'hold', 'homeType', 'label', 'lat', 'list_price', 'lon', 'manufactured', 'maybe', 'mobile', 'property_type', 'rank_score', 'raw', 'reason', 'score', 'single_family', 'source', 'sqft', 'state', 'strategy', 'trailer', 'ts', 'unknown', 'zip', 'zipcode', 'zipcode_encoded']
