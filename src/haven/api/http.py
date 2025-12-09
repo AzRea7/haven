@@ -1,4 +1,3 @@
-# src/haven/api/http.py
 from collections.abc import Sequence
 from typing import Any, Dict
 
@@ -157,18 +156,43 @@ def top_deals(
 
     items: list[TopDealItem] = []
 
+    # Keywords we do NOT want in any deal (portfolio view)
+    EXCLUDED_TYPE_KEYWORDS = (
+        "manufactured",
+        "mobile",
+        "trailer",
+        "condo",
+        "condominium",
+        "townhome",
+        "townhouse",
+        "apartment",
+        "multi-family",
+        "multi family",
+        "duplex",
+        "triplex",
+        "quadplex",
+    )
+
     for rec in records:
         if not rec.get("list_price"):
             continue
 
         raw = rec.get("raw") or {}
 
-        # Filter out manufactured/mobile/trailer homes
+        # Filter out manufactured/mobile/trailer + condos/townhomes/apartments/etc.
         prop_type_raw = (rec.get("property_type") or "").lower()
         zillow_home_type = (raw.get("homeType") or "").lower()
-        combined = f"{prop_type_raw} {zillow_home_type}"
+        zillow_reso_type = (raw.get("resoPropertyType") or "").lower()
 
-        if "manufactured" in combined or "mobile" in combined or "trailer" in combined:
+        combined = " ".join(
+            [
+                prop_type_raw,
+                zillow_home_type,
+                zillow_reso_type,
+            ]
+        )
+
+        if any(tok in combined for tok in EXCLUDED_TYPE_KEYWORDS):
             continue
 
         # Days on market from raw payload if present

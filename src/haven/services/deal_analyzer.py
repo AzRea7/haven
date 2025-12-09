@@ -1,28 +1,28 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pandas as pd
-from types import SimpleNamespace
 
 from haven.adapters.arv_quantile_bundle import predict_arv_quantiles
-from haven.features.common_features import build_property_features
 from haven.adapters.config import config
+from haven.adapters.flip_classifier import FlipClassifier
 from haven.adapters.logging_utils import get_logger
 from haven.adapters.rent_estimator_lightgbm import LightGBMRentEstimator
 from haven.adapters.sql_repo import SqlDealRepository
-from haven.adapters.flip_classifier import FlipClassifier
 from haven.analysis.finance import analyze_property_financials
 from haven.analysis.scoring import score_deal, score_property
 from haven.analysis.valuation import summarize_deal_pricing
 from haven.domain.assumptions import UnderwritingAssumptions
+from haven.domain.finance import build_scenario_metrics
 from haven.domain.ports import DealRepository, RentEstimator
 from haven.domain.property import Property, Unit
-from haven.services.validation import validate_and_prepare_payload
-from haven.services.guardrails import apply_guardrails
-from haven.domain.underwriting import DealEvaluation
-from haven.domain.finance import build_scenario_metrics
 from haven.domain.rules import apply_rules
+from haven.domain.underwriting import DealEvaluation
+from haven.features.common_features import build_property_features
+from haven.services.guardrails import apply_guardrails
+from haven.services.validation import validate_and_prepare_payload
 
 logger = get_logger(__name__)
 
@@ -164,7 +164,7 @@ def _compute_flip_probability(
 
     try:
         features = {
-            # Must align with features used in scripts/train_flip.py OR audit_flip_classifier
+            # Must align with features used in train_flip.py / audit_flip_classifier
             "dscr": float(finance.get("dscr", 0.0)),
             "cash_on_cash_return": float(finance.get("cash_on_cash_return", 0.0)),
             "breakeven_occupancy_pct": float(
@@ -184,70 +184,104 @@ def _compute_flip_probability(
 
 
 def _attach_suggestion_and_rank(
-    score: dict,
-    finance: dict,
-    pricing: dict,
+    score: dict[str, Any],
+    finance: dict[str, Any],
+    pricing: dict[str, Any],
     strategy: str,
     flip_p_good: float | None,
-) -> dict:
+    arv_q: dict[str, float] | None = None,
+) -> dict[str, Any]:
     """
-    Attach suggestion + strategy-aware rank_score.
+    Turn the neutral score dict + finance/pricing into a strategy-aware
+    rank_score and suggestion/label.
 
-    strategy:
-      - "rental" (or "hold"): favor DSCR + CoC, penalize breakeven occupancy.
-      - "flip": favor discount (under fair value) + flip probability, with DSCR/CoC as tie-breakers.
+    Key points:
+      - For flips, spread is computed vs ARV median (p50/q50) when available.
+      - Flip rank is driven by spread + flip probability, with DSCR/CoC
+        acting as stabilizers.
     """
-    s = dict(score)
+    dscr = float(finance.get("dscr", 0.0) or 0.0)
+    coc = float(finance.get("cash_on_cash_return", 0.0) or 0.0)
+    breakeven = float(finance.get("breakeven_occupancy_pct", 0.0) or 0.0)
+    dom = float(finance.get("days_on_market", 0.0) or 0.0)
 
-    label = str(s.get("label", "pass")).lower()
-    dscr = float(finance.get("dscr", 0.0))
-    coc = float(finance.get("cash_on_cash_return", 0.0))
-    breakeven = float(finance.get("breakeven_occupancy_pct", 0.0))
+    ask_price = float(pricing.get("ask_price") or 0.0)
 
-    # Suggestion mapping (unchanged)
-    if label == "buy":
-        suggestion = "buy"
-    elif label == "maybe":
-        if dscr < 1.15:
-            suggestion = "maybe (low DSCR)"
-        else:
-            suggestion = "maybe negotiate"
+    # --- 1. Start from pricing's generic spread ----------------------------
+    price_delta_pct = float(pricing.get("price_delta_pct") or 0.0)
+
+    # If we have ARV, compute an ARV-based spread and store it explicitly.
+    arv_price_delta_pct: float | None = None
+    if arv_q is not None:
+        # Support both p*/q* layouts
+        def pick(*names: str) -> float | None:
+            for n in names:
+                if n in arv_q and arv_q[n] is not None:
+                    try:
+                        return float(arv_q[n])
+                    except (TypeError, ValueError):
+                        continue
+            return None
+
+        p50 = pick("p50", "q50", "median")
+        if p50 is not None and p50 > 0 and ask_price > 0:
+            arv_fair_value = float(p50)
+            arv_price_delta = ask_price - arv_fair_value
+            arv_price_delta_pct = arv_price_delta / arv_fair_value
+
+            pricing["arv_fair_value_estimate"] = arv_fair_value
+            pricing["arv_price_delta"] = float(arv_price_delta)
+            pricing["arv_price_delta_pct"] = float(arv_price_delta_pct)
+
+    # For flips, prefer ARV-based spread if available
+    if strategy == "flip" and arv_price_delta_pct is not None:
+        price_delta_pct = arv_price_delta_pct
+
+    # Spread is defined so that *better deals* (cheaper vs fair value)
+    # have larger positive spread_score.
+    spread_score = -price_delta_pct  # ask < fair => negative delta => positive spread_score
+
+    flip_p = float(flip_p_good or 0.0)
+
+    # --- 2. Strategy-aware rank_score --------------------------------------
+    if strategy == "hold":
+        # Rental / buy-and-hold mode: prioritize DSCR & CoC,
+        # penalize fragile breakeven, gently penalize long DOM.
+        penalty = max(breakeven - 1.0, 0.0)
+        dom_penalty = min(dom / 365.0, 1.0) * 0.5  # up to -0.5 for very stale listings
+
+        rank_score = dscr + 6.0 * coc - 0.25 * penalty - dom_penalty
+
+        suggestion = "buy" if rank_score >= 2.0 and dscr >= 1.2 and coc >= 0.08 else "watch"
+        if dscr < 1.0:
+            suggestion = "avoid"
+
     else:
-        suggestion = "pass"
+        # Flip mode: lean hard on spread & flip probability.
+        # Heuristic weights:
+        #   - 6x spread_score: a 10% discount to ARV => +0.6
+        #   - 4x flip_p: 0.7 flip prob => +2.8
+        #   - 0.5x dscr, 1.5x CoC as secondary stabilizers
+        spread_component = 6.0 * spread_score
+        flip_component = 4.0 * flip_p
+        dscr_component = 0.5 * dscr
+        coc_component = 1.5 * coc
 
-    s["suggestion"] = suggestion
+        rank_score = spread_component + flip_component + dscr_component + coc_component
 
-    # -------- Strategy-aware rank_score --------
-    # Default if someone passes garbage
-    strategy_norm = str(strategy or "").lower()
-    if strategy_norm in ("hold", "rental"):
-        mode = "rental"
-    elif strategy_norm == "flip":
-        mode = "flip"
-    else:
-        mode = "rental"
+        suggestion = "watch"
+        if spread_score > 0.10 and flip_p >= 0.6:
+            suggestion = "buy"
+        elif spread_score < -0.05 or flip_p < 0.2:
+            suggestion = "avoid"
 
-    # Common terms
-    price_delta_pct = float(pricing.get("price_delta_pct", 0.0))
-    # Positive delta_pct = overpriced, negative = discount → flip engine wants more negative.
-    spread_score = -price_delta_pct  # larger is better (more underpriced)
-    flip_p = float(flip_p_good) if flip_p_good is not None else 0.0
+    # --- 3. Final labeling --------------------------------------------------
+    score["rank_score"] = float(rank_score)
+    score["suggestion"] = suggestion
+    score["label"] = suggestion  # for now label == suggestion
 
-    if mode == "rental":
-        # Rental brain: heavily reward DSCR + CoC, slightly punish high breakeven occupancy.
-        penalty = max(
-            breakeven - 1.0, 0.0
-        )  # only penalize if > 1.0 (needs >100% occupancy to break even)
-        rank_score = dscr + 6.0 * coc - 0.25 * penalty
-    else:
-        # Flip brain:
-        #  - Main driver: spread_score (how underpriced it is).
-        #  - Second: flip_p_good from classifier.
-        #  - DSCR/CoC are tiebreakers so you don't end up with absolutely suicidal debt service.
-        rank_score = 1.5 * spread_score + 2.0 * flip_p + 1.0 * dscr + 3.0 * coc
+    return score
 
-    s["rank_score"] = float(rank_score)
-    return s
 
 
 def _normalize_payload_for_underwriting(
@@ -374,52 +408,44 @@ def analyze_deal(
         min_dscr_good=config.MIN_DSCR_GOOD,
     )
 
-    # 6. Financials & pricing
+    # 6. Financials ---------------------------------------------------------
     finance = analyze_property_financials(prop, assumptions)
-    sqft = float(payload.get("sqft") or 0.0)
-    pricing = summarize_deal_pricing(prop, sqft=sqft, assumptions=assumptions)
 
-    # 7. Flip probability (optional)
-    flip_p = _compute_flip_probability(finance, payload)
+    # 7. ARV quantiles from the bundle (or safe fallback) -------------------
+    #
+    # We *only* pass a simple "base" feature here.
+    # - If an ARV bundle is configured and compatible, it will use it.
+    # - If not, predict_arv_quantiles will fall back to a +/-10% band
+    #   around this base value.
+    list_price = float(payload.get("list_price") or 0.0)
 
-    # 8. ARV quantiles from the LightGBM bundle (if available)
     arv_q: dict[str, float] | None = None
     try:
-        list_price = float(payload.get("list_price") or 0.0)
-        sqft_val = float(payload.get("sqft") or 0.0)
-        beds = float(payload.get("bedrooms") or 0.0)
-        baths = float(payload.get("bathrooms") or 0.0)
-        year_built_val = payload.get("year_built") or getattr(prop, "year_built", None)
-        year_built = float(year_built_val) if year_built_val is not None else 0.0
-
-        arv_base_df = pd.DataFrame(
-            [
-                {
-                    "list_price": list_price,
-                    "sqft": sqft_val,
-                    "bedrooms": beds,
-                    "bathrooms": baths,
-                    "year_built": year_built,
-                    "zipcode": str(prop.zipcode),
-                    "property_type": prop.property_type,
-                }
-            ]
-        )
-
-        arv_features_df = build_property_features(arv_base_df)
-        arv_features = {
-            k: float(v) for k, v in arv_features_df.iloc[0].to_dict().items()
-        }
-
-        # Also set a 'base' value so predict_arv_quantiles can fall back gracefully
-        arv_features.setdefault("base", list_price)
-
-        arv_q = predict_arv_quantiles(arv_features)
+        arv_q = predict_arv_quantiles({"base": list_price})
     except Exception as exc:
-        logger.exception("arv_quantile_inference_failed", exc_info=exc)
+        logger.warning(
+            "arv_quantile_inference_failed",
+            extra={
+                "error": str(exc),
+                "list_price": list_price,
+                "zipcode": payload.get("zipcode"),
+            },
+        )
         arv_q = None
 
-    # 9. Rank / score using ARV quantiles (no rent quantiles yet)
+    # 8. Pricing summary (ARV-aware when available) -------------------------
+    sqft = float(payload.get("sqft") or 0.0)
+    pricing = summarize_deal_pricing(
+        prop=prop,
+        sqft=sqft,
+        assumptions=assumptions,
+        arv_q=arv_q,
+    )
+
+    # 9. Flip probability (optional; safe no-op if classifier not ready) ----
+    flip_p = _compute_flip_probability(finance, payload)
+
+    # 10. Rank / score using ARV quantiles (no rent quantiles yet) ----------
     score_new = score_property(
         finance=finance,
         arv_q=arv_q,
@@ -433,10 +459,12 @@ def analyze_deal(
         pricing,
         strategy=strategy,
         flip_p_good=flip_p,
+        arv_q=arv_q,
     )
 
-    # 10. Legacy score for debugging/backwards compatibility
+    # 11. Legacy score for debugging/backwards compatibility ----------------
     score_legacy = score_deal(finance)
+
 
     result: dict[str, Any] = {
         "address": {
@@ -455,12 +483,12 @@ def analyze_deal(
         "arv_q": arv_q,
     }
 
-    # 11. Guardrails (sanity flags)
+    # 12. Guardrails (sanity flags)
     result = apply_guardrails(payload=payload, result=result)
 
     logger.info("deal_analyzed", extra=result)
 
-    # 12. Persist if repo provided
+    # 13. Persist if repo provided
     deal_id: int | None = None
     if repo is not None:
         deal_id = repo.save_analysis(result, raw_payload)
@@ -551,13 +579,24 @@ def evaluate_deal(
     return eval_obj
 
 
-def analyze_deal_with_defaults(raw_payload: dict[str, Any]) -> dict[str, Any]:
+def analyze_deal_with_defaults(
+    raw_payload: dict[str, Any],
+) -> dict[str, Any]:
     """
-    Public helper using default SQL repo and rent estimator.
-    This is what the FastAPI /analyze endpoint and several tests call.
+    Thin wrapper used by the HTTP API.
+
+    Matches the older signature that http.py imports:
+        analyze_deal_with_defaults(raw_payload=payload)
+
+    Uses the default rent estimator and default SQL repo, and then delegates
+    to analyze_deal.
     """
+    rent_estimator = _default_estimator
+    repo_to_use: DealRepository | None = _default_repo
+
     return analyze_deal(
         raw_payload=raw_payload,
-        rent_estimator=_default_estimator,
-        repo=_default_repo,
+        rent_estimator=rent_estimator,
+        repo=repo_to_use,
     )
+

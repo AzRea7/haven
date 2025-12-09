@@ -11,27 +11,81 @@ from haven.adapters.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
+# Keywords we want to EXCLUDE from comps (multi-family/condo/etc.)
+EXCLUDED_TYPE_KEYWORDS = (
+    "condo",
+    "condominium",
+    "townhome",
+    "townhouse",
+    "apartment",
+    "multi-family",
+    "multi family",
+    "duplex",
+    "triplex",
+    "quadplex",
+    "manufactured",
+    "mobile",
+    "trailer",
+)
+
+# Optional positive SFR hints if you want to tighten further later
+SFR_HINT_KEYWORDS = (
+    "single_family",
+    "single family",
+    "sfr",
+    "house",
+    "detached",
+)
+
+
+def _infer_combined_type(df: pd.DataFrame) -> pd.Series:
+    """
+    Build a combined type string per row using:
+
+      - df['property_type'] if present
+      - + any Zillow-style home-type metadata column if present
+
+    This lets us filter out condos/townhomes/apartments robustly.
+    """
+    # Normalize property_type
+    if "property_type" not in df.columns:
+        df["property_type"] = ""
+    prop_type = df["property_type"].astype(str).str.strip().str.lower()
+
+    # Try to find a Zillow-style home type column
+    home_type_col: str | None = None
+    for cand in ("zillow_home_type", "home_type", "homeType"):
+        if cand in df.columns:
+            home_type_col = cand
+            break
+
+    if home_type_col is not None:
+        home_type = df[home_type_col].astype(str).str.strip().str.lower()
+    else:
+        home_type = pd.Series([""] * len(df), index=df.index)
+
+    combined = (prop_type.fillna("") + " " + home_type.fillna("")).str.strip()
+
+    return combined
+
 
 def build_training(
     sold_parquet: Path,
     out_parquet: Path,
 ) -> None:
     """
-    Build ARV training dataset directly from ATTOM-sourced sold_properties.parquet.
+    Build ARV training frame from ATTOM/Zillow-style sold properties parquet.
 
-    Input (sold_parquet) is expected to come from:
-      entrypoints/cli/fetch_sold_from_api.py
-
-    Required columns:
+    Expects sold_parquet to contain at least:
       - sold_price
       - zipcode
+      - (optional) list_price
+      - (optional) property_type
+      - (optional) Zillow home type columns:
+           zillow_home_type / home_type / homeType
 
-    Optional but helpful:
-      - bedrooms
-      - bathrooms
-      - sqft
-      - year_built
-      - property_type
+    Output:
+      - out_parquet with numeric feature matrix + 'target_arv' column.
     """
     if not sold_parquet.exists():
         raise SystemExit(f"Sold comps parquet not found: {sold_parquet}")
@@ -44,7 +98,7 @@ def build_training(
     if "zipcode" not in df.columns:
         raise SystemExit("sold_properties.parquet must contain 'zipcode' column")
 
-    # Work on a copy to avoid weird view issues
+    # Work on a copy to avoid view issues
     df = df.copy()
 
     # Define ARV target as sold_price
@@ -57,21 +111,44 @@ def build_training(
     # Normalize zipcode as zero-padded string
     df["zipcode"] = df["zipcode"].astype(str).str.strip().str.zfill(5)
 
-    # Property type: default to single_family if missing
+    # Normalize property_type if present
     if "property_type" not in df.columns:
-        df["property_type"] = "single_family"
+        df["property_type"] = ""
     else:
-        df["property_type"] = df["property_type"].astype(str).str.strip()
+        df["property_type"] = df["property_type"].astype(str).str.strip().str.lower()
+
+    # --- Use Zillow metadata to filter to SFR-like comps -------------------
+    combined_type = _infer_combined_type(df)
+
+    before_rows = len(df)
+
+    # 1) Drop obvious non-SFR types (condos, townhomes, apartments, etc.)
+    excl_mask = combined_type.str.contains("|".join(EXCLUDED_TYPE_KEYWORDS), na=False)
+    df = df.loc[~excl_mask].copy()
+
+    after_excl_rows = len(df)
+
+    # 2) (Optional) If we find enough rows with SFR hints, restrict to those.
+    sfr_mask = combined_type.str.contains("|".join(SFR_HINT_KEYWORDS), na=False)
+    sfr_rows = sfr_mask.sum()
+
+    # Only apply positive SFR filter if it doesn't nuke the dataset
+    if sfr_rows > 0 and sfr_rows >= 0.3 * len(df):
+        df = df.loc[sfr_mask].copy()
+
+    after_sfr_rows = len(df)
 
     logger.info(
         "build_arv_training_from_sold_input",
         extra={
-            "rows": len(df),
+            "rows_initial": before_rows,
+            "rows_after_exclude": after_excl_rows,
+            "rows_after_sfr_filter": after_sfr_rows,
             "cols": list(df.columns),
         },
     )
 
-    # Build features using the shared feature pipeline.
+    # --- Build features using the shared pipeline --------------------------
     feat = build_property_features(df)
 
     # Use the feature matrix as a plain DataFrame
@@ -87,20 +164,16 @@ def build_training(
     logger.info(
         "build_arv_training_from_sold_done",
         extra={
-            "out": str(out_parquet),
+            "out_path": str(out_parquet),
             "rows": len(out),
             "cols": list(out.columns),
         },
-    )
-    print(
-        f"Wrote ARV training parquet to {out_parquet} "
-        f"with {len(out)} rows and {len(out.columns) - 2} numeric features."
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Build ARV training dataset from ATTOM sold properties parquet."
+        description="Build ARV training dataset from ATTOM/Zillow sold properties parquet."
     )
     parser.add_argument(
         "--sold-path",
