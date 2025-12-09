@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
-
 from types import SimpleNamespace
 
 from haven.adapters.arv_quantile_bundle import predict_arv_quantiles
@@ -152,7 +151,10 @@ def _fill_missing_rents(
     return prop
 
 
-def _compute_flip_probability(finance: dict[str, Any], payload: dict[str, Any]) -> float | None:
+def _compute_flip_probability(
+    finance: dict[str, Any],
+    payload: dict[str, Any],
+) -> float | None:
     """
     Minimal, robust integration with FlipClassifier.
     Returns probability in [0,1] or None if model not available.
@@ -181,24 +183,28 @@ def _compute_flip_probability(finance: dict[str, Any], payload: dict[str, Any]) 
         return None
 
 
-def _attach_suggestion_and_rank(score: dict, finance: dict) -> dict:
+def _attach_suggestion_and_rank(
+    score: dict,
+    finance: dict,
+    pricing: dict,
+    strategy: str,
+    flip_p_good: float | None,
+) -> dict:
     """
-    Backward-compatible suggestion + rank_score for tests and UI.
+    Attach suggestion + strategy-aware rank_score.
 
-    Tests expect:
-      - score["suggestion"] ∈ {"buy", "maybe negotiate", "maybe (low DSCR)", "pass"}
-      - score["rank_score"] exists and orders good > bad deals.
-
-    We use a simple, monotonic heuristic for rank_score based on DSCR and CoC,
-    but only if score_property hasn't already provided one.
+    strategy:
+      - "rental" (or "hold"): favor DSCR + CoC, penalize breakeven occupancy.
+      - "flip": favor discount (under fair value) + flip probability, with DSCR/CoC as tie-breakers.
     """
     s = dict(score)
 
     label = str(s.get("label", "pass")).lower()
     dscr = float(finance.get("dscr", 0.0))
     coc = float(finance.get("cash_on_cash_return", 0.0))
+    breakeven = float(finance.get("breakeven_occupancy_pct", 0.0))
 
-    # Suggestion mapping
+    # Suggestion mapping (unchanged)
     if label == "buy":
         suggestion = "buy"
     elif label == "maybe":
@@ -211,11 +217,38 @@ def _attach_suggestion_and_rank(score: dict, finance: dict) -> dict:
 
     s["suggestion"] = suggestion
 
-    # Ensure rank_score is present. If score_property already provided one, keep it.
-    if "rank_score" not in s:
-        s["rank_score"] = dscr + 5.0 * coc
+    # -------- Strategy-aware rank_score --------
+    # Default if someone passes garbage
+    strategy_norm = str(strategy or "").lower()
+    if strategy_norm in ("hold", "rental"):
+        mode = "rental"
+    elif strategy_norm == "flip":
+        mode = "flip"
+    else:
+        mode = "rental"
 
+    # Common terms
+    price_delta_pct = float(pricing.get("price_delta_pct", 0.0))
+    # Positive delta_pct = overpriced, negative = discount → flip engine wants more negative.
+    spread_score = -price_delta_pct  # larger is better (more underpriced)
+    flip_p = float(flip_p_good) if flip_p_good is not None else 0.0
+
+    if mode == "rental":
+        # Rental brain: heavily reward DSCR + CoC, slightly punish high breakeven occupancy.
+        penalty = max(
+            breakeven - 1.0, 0.0
+        )  # only penalize if > 1.0 (needs >100% occupancy to break even)
+        rank_score = dscr + 6.0 * coc - 0.25 * penalty
+    else:
+        # Flip brain:
+        #  - Main driver: spread_score (how underpriced it is).
+        #  - Second: flip_p_good from classifier.
+        #  - DSCR/CoC are tiebreakers so you don't end up with absolutely suicidal debt service.
+        rank_score = 1.5 * spread_score + 2.0 * flip_p + 1.0 * dscr + 3.0 * coc
+
+    s["rank_score"] = float(rank_score)
     return s
+
 
 def _normalize_payload_for_underwriting(
     payload: dict[str, Any],
@@ -266,7 +299,6 @@ def _sanitize_quantiles(
     return out
 
 
-
 def analyze_deal(
     raw_payload: dict[str, Any],
     rent_estimator: RentEstimator,
@@ -288,6 +320,18 @@ def analyze_deal(
     """
     # 1. Validate + normalize + apply defaults
     payload = validate_and_prepare_payload(raw_payload)
+
+    # Normalize strategy:
+    # - UI may send "rental"/"flip"
+    # - internal engine uses "hold"/"flip"
+    strategy_raw = str(payload.get("strategy", "hold")).lower()
+    if strategy_raw == "rental":
+        strategy = "hold"
+    elif strategy_raw in ("hold", "flip"):
+        strategy = strategy_raw
+    else:
+        strategy = "hold"
+    payload["strategy"] = strategy
 
     # 2. Cast dict units -> Unit models
     units_data = payload.get("units")
@@ -375,18 +419,21 @@ def analyze_deal(
         logger.exception("arv_quantile_inference_failed", exc_info=exc)
         arv_q = None
 
-    # 9. Rank / score using ARV quantiles
-        # 7. Rank / score using ARV quantiles
-    # score_property currently only takes (finance, arv_q, rent_q)
+    # 9. Rank / score using ARV quantiles (no rent quantiles yet)
     score_new = score_property(
         finance=finance,
         arv_q=arv_q,
         rent_q=None,
     )
 
-
-    # Attach suggestion + ensure rank_score present
-    score_with_suggestion = _attach_suggestion_and_rank(score_new, finance)
+    # Attach suggestion + ensure rank_score present (strategy-aware)
+    score_with_suggestion = _attach_suggestion_and_rank(
+        score_new,
+        finance,
+        pricing,
+        strategy=strategy,
+        flip_p_good=flip_p,
+    )
 
     # 10. Legacy score for debugging/backwards compatibility
     score_legacy = score_deal(finance)
@@ -399,6 +446,7 @@ def analyze_deal(
             "zipcode": prop.zipcode,
         },
         "property_type": prop.property_type,
+        "strategy": strategy,
         "finance": finance,
         "pricing": pricing,
         "score": score_with_suggestion,
@@ -410,7 +458,7 @@ def analyze_deal(
     # 11. Guardrails (sanity flags)
     result = apply_guardrails(payload=payload, result=result)
 
-    logger.info("deal_analyzed", extra={"context": result})
+    logger.info("deal_analyzed", extra=result)
 
     # 12. Persist if repo provided
     deal_id: int | None = None
@@ -421,6 +469,7 @@ def analyze_deal(
         result["deal_id"] = deal_id
 
     return result
+
 
 def evaluate_deal(
     raw_payload: dict[str, Any],

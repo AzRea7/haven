@@ -27,7 +27,6 @@ DEFAULT_LOAN_TERM_YEARS = 30
 DEFAULT_TAXES_ANNUAL = 3000.0  # fallback if missing
 DEFAULT_INSURANCE_ANNUAL = 1200.0  # fallback if missing
 
-
 _deal_repo: DealRepository = SqlDealRepository(config.DB_URI)
 _property_repo: PropertyRepository = SqlPropertyRepository(config.DB_URI)
 
@@ -132,28 +131,20 @@ def _estimate_arv_quantiles(prop: Property, rec: Dict[str, Any]) -> Dict[str, fl
 def top_deals(
     zip: str = Query(..., alias="zip"),
     max_price: float | None = Query(None),
-    limit: int = Query(50, ge=1, le=500),
-    # NEW: strategy toggle – external API uses 'rental' / 'flip'
     strategy: str = Query("rental", regex="^(rental|flip)$"),
+    limit: int = Query(50, ge=1, le=500),
 ) -> list[TopDealItem]:
     """
     Return ranked deals for a given zip and optional price ceiling.
 
-    Behavior:
-
-    - Pulls properties from SqlPropertyRepository for the ZIP.
-    - Skips manufactured/mobile/trailer homes.
-    - Builds the same payload shape used by debug_top_deal_sample.py.
-    - Sends each through analyze_deal(), using the same rent estimator and
-      underwriting assumptions.
-    - Uses the 'strategy' parameter to choose between rental / flip scoring.
-    - Returns TopDealItem entries sorted descending by rank_score.
+    - strategy = "rental" → hold / cashflow ranking
+    - strategy = "flip"   → spread / flip-probability ranking
     """
-
-    # Map external strategy to internal engine strategy
-    # 'rental' -> 'hold' (buy-and-hold rental)
-    # 'flip'   -> 'flip' (ARV / spread / short hold)
-    internal_strategy = "hold" if strategy == "rental" else "flip"
+    # Normalize strategy to what the rest of the code expects.
+    # UI sends "rental" or "flip".
+    strategy = strategy.lower()
+    if strategy not in ("rental", "flip"):
+        strategy = "rental"
 
     try:
         records = _property_repo.search(
@@ -172,15 +163,15 @@ def top_deals(
 
         raw = rec.get("raw") or {}
 
-        # ---------- filter out manufactured/mobile/trailer homes ----------
+        # Filter out manufactured/mobile/trailer homes
         prop_type_raw = (rec.get("property_type") or "").lower()
         zillow_home_type = (raw.get("homeType") or "").lower()
         combined = f"{prop_type_raw} {zillow_home_type}"
+
         if "manufactured" in combined or "mobile" in combined or "trailer" in combined:
             continue
-        # ------------------------------------------------------------------
 
-        # Days on market pulled from raw Zillow payload if present
+        # Days on market from raw payload if present
         dom = float(
             raw.get("daysOnZillow")
             or raw.get("dom")
@@ -188,7 +179,7 @@ def top_deals(
             or 0.0
         )
 
-        # Build payload for underwriting / scoring
+        # Build payload for the analyzer
         payload: dict[str, Any] = {
             "address": rec["address"],
             "city": rec["city"],
@@ -199,20 +190,18 @@ def top_deals(
             "sqft": float(rec.get("sqft") or 0.0),
             "bedrooms": float(rec.get("beds") or raw.get("beds") or 0.0),
             "bathrooms": float(rec.get("baths") or raw.get("baths") or 0.0),
-            # Strategy drives the rules / scoring inside the engine
-            "strategy": internal_strategy,
+            "strategy": strategy,          # <-- KEY: pass strategy through
             "days_on_market": dom,
         }
 
         try:
-            # Use the same analysis pipeline as /analyze & debug scripts
             analysis = analyze_deal(
                 raw_payload=payload,
                 rent_estimator=_rent_estimator or LightGBMRentEstimator(),
                 repo=_deal_repo,
             )
         except Exception:
-            # If a single property blows up, skip it rather than kill the endpoint
+            # If a single property blows up, skip it
             continue
 
         finance = analysis.get("finance", {})
@@ -241,6 +230,6 @@ def top_deals(
             )
         )
 
-    # Sort best → worst using the risk-adjusted rank_score
+    # Sort best → worst using rank_score (strategy-aware)
     items.sort(key=lambda x: x.rank_score, reverse=True)
     return items
