@@ -15,6 +15,11 @@ function App() {
 
   const [strategy, setStrategy] = useState<Strategy>("rental");
 
+  // New investor-style filters
+  const [minDscr, setMinDscr] = useState<string>("");
+  const [minCoc, setMinCoc] = useState<string>("");
+  const [minLabel, setMinLabel] = useState<"all" | "maybe" | "buy">("all");
+
   const [deals, setDeals] = useState<TopDealItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +43,17 @@ function App() {
     params.set("zip", cleanedZip);
     params.set("max_price", String(maxPrice));
     params.set("strategy", targetStrategy);
+
+    // Wire up investor-style filters
+    if (minDscr.trim()) {
+      params.set("min_dscr", minDscr.trim());
+    }
+    if (minCoc.trim()) {
+      params.set("min_coc", minCoc.trim());
+    }
+    if (minLabel !== "all") {
+      params.set("min_label", minLabel);
+    }
 
     const url = `/top-deals?${params.toString()}`;
 
@@ -168,6 +184,57 @@ function App() {
           </div>
         </div>
 
+        {/* Investor-style filters */}
+        <div className="search-bar secondary-filters">
+          <div className="search-field">
+            <label htmlFor="min-dscr-input" className="search-label">
+              Min DSCR
+            </label>
+            <input
+              id="min-dscr-input"
+              type="number"
+              step="0.05"
+              value={minDscr}
+              onChange={(e) => setMinDscr(e.target.value)}
+              placeholder="e.g. 1.20"
+              className="search-input"
+            />
+          </div>
+
+          <div className="search-field">
+            <label htmlFor="min-coc-input" className="search-label">
+              Min CoC (decimal)
+            </label>
+            <input
+              id="min-coc-input"
+              type="number"
+              step="0.01"
+              value={minCoc}
+              onChange={(e) => setMinCoc(e.target.value)}
+              placeholder="e.g. 0.08"
+              className="search-input"
+            />
+          </div>
+
+          <div className="search-field">
+            <label htmlFor="min-label-select" className="search-label">
+              Label Filter
+            </label>
+            <select
+              id="min-label-select"
+              value={minLabel}
+              onChange={(e) =>
+                setMinLabel(e.target.value as "all" | "maybe" | "buy")
+              }
+              className="search-input"
+            >
+              <option value="all">All (BUY/MAYBE/PASS)</option>
+              <option value="maybe">At least MAYBE</option>
+              <option value="buy">BUY only</option>
+            </select>
+          </div>
+        </div>
+
         <div className="search-meta">
           <div className="search-meta-primary">
             Viewing{" "}
@@ -193,12 +260,7 @@ function App() {
       <main className="app-main">
         <section className="app-main-left">
           <div className="panel">
-            <TopDealsTable
-              zip={activeZip}
-              deals={deals}
-              loading={loading}
-              error={error}
-            />
+            <TopDealsTable deals={deals} isLoading={loading} error={error} />
           </div>
         </section>
 

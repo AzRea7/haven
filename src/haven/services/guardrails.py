@@ -73,8 +73,8 @@ def apply_guardrails(
     mao_p50 = _safe_float(pricing.get("mao_p50"), 0.0)
     dscr = _safe_float(finance.get("dscr"), 0.0)
 
-    # ------------------------------------------------------------------
-    # 1) Basic data sanity
+       # ------------------------------------------------------------------
+    # 1) Basic data + unit sanity
     # ------------------------------------------------------------------
     if list_price <= 0:
         flags.append(
@@ -85,6 +85,69 @@ def apply_guardrails(
                 "context": {"list_price": list_price},
             }
         )
+
+    # Pull basic physical characteristics from either payload or finance
+    sqft = _safe_float(payload.get("sqft") or finance.get("sqft"), 0.0)
+    beds = _safe_float(payload.get("bedrooms") or payload.get("beds") or finance.get("beds"), 0.0)
+    baths = _safe_float(payload.get("bathrooms") or payload.get("baths") or finance.get("baths"), 0.0)
+
+    # Tiny or missing units are risky: often bad data or truly odd properties
+    if sqft and sqft < 400:
+        flags.append(
+            {
+                "code": "TINY_UNIT_SQFT",
+                "severity": "warning",
+                "message": "Square footage is under 400 sqft – likely a studio or bad data.",
+                "context": {"sqft": sqft},
+            }
+        )
+
+    if sqft == 0:
+        flags.append(
+            {
+                "code": "MISSING_SQFT",
+                "severity": "warning",
+                "message": "Square footage is missing. Underwriting metrics may be unreliable.",
+                "context": {},
+            }
+        )
+
+    if beds == 0:
+        flags.append(
+            {
+                "code": "MISSING_BEDS",
+                "severity": "warning",
+                "message": "Bedroom count is missing or zero – check the listing details.",
+                "context": {},
+            }
+        )
+
+    # Weird combos: huge sqft but tiny price, or vice versa.
+    # These are heuristic, but very good at surfacing junk.
+    if sqft > 0 and list_price > 0:
+        psf = list_price / max(sqft, 1.0)
+
+        # Extremely low PSF → possibly land-only, teardown, or bad data
+        if psf < 30:
+            flags.append(
+                {
+                    "code": "PRICE_PER_SQFT_SUSPICIOUS_LOW",
+                    "severity": "warning",
+                    "message": "Price per sqft is extremely low – could be bad data or heavy distress.",
+                    "context": {"psf": psf, "sqft": sqft, "list_price": list_price},
+                }
+            )
+
+        # Extremely high PSF → typo in price or sqft
+        if psf > 800:
+            flags.append(
+                {
+                    "code": "PRICE_PER_SQFT_SUSPICIOUS_HIGH",
+                    "severity": "warning",
+                    "message": "Price per sqft is extremely high – check for data entry errors.",
+                    "context": {"psf": psf, "sqft": sqft, "list_price": list_price},
+                }
+            )
 
     # ------------------------------------------------------------------
     # 2) ARV vs list price sanity

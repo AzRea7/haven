@@ -263,6 +263,7 @@ export function TopDealsTable({
 
               {/* narrative + footer */}
               <p className="deal-card-reason">
+                <strong>Why it ranks here: </strong>
                 {deal.reason ||
                   (deal.label === "buy"
                     ? "High risk-adjusted score with strong coverage and returns."

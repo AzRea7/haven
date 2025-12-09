@@ -132,12 +132,34 @@ def top_deals(
     max_price: float | None = Query(None),
     strategy: str = Query("rental", regex="^(rental|flip)$"),
     limit: int = Query(50, ge=1, le=500),
+    min_dscr: float | None = Query(
+        None,
+        description="If set, only return deals with DSCR >= this value.",
+    ),
+    min_coc: float | None = Query(
+        None,
+        description="If set, only return deals with Cash-on-Cash >= this value (as decimal, e.g. 0.08).",
+    ),
+    max_breakeven: float | None = Query(
+        None,
+        description="If set, only return deals with breakeven occupancy <= this value (as decimal, e.g. 0.85).",
+    ),
+    min_label: str | None = Query(
+        None,
+        description="If 'maybe', exclude PASS deals. If 'buy', include BUY only.",
+    ),
 ) -> list[TopDealItem]:
     """
     Return ranked deals for a given zip and optional price ceiling.
 
     - strategy = "rental" → hold / cashflow ranking
     - strategy = "flip"   → spread / flip-probability ranking
+
+    Investor-style filters:
+    - min_dscr: require DSCR >= threshold
+    - min_coc: require CoC >= threshold (decimal)
+    - max_breakeven: require breakeven occupancy <= threshold (decimal)
+    - min_label: require at least 'maybe' or 'buy'
     """
     # Normalize strategy to what the rest of the code expects.
     # UI sends "rental" or "flip".
@@ -165,12 +187,6 @@ def top_deals(
         "condominium",
         "townhome",
         "townhouse",
-        "apartment",
-        "multi-family",
-        "multi family",
-        "duplex",
-        "triplex",
-        "quadplex",
     )
 
     for rec in records:
@@ -214,7 +230,7 @@ def top_deals(
             "sqft": float(rec.get("sqft") or 0.0),
             "bedrooms": float(rec.get("beds") or raw.get("beds") or 0.0),
             "bathrooms": float(rec.get("baths") or raw.get("baths") or 0.0),
-            "strategy": strategy,          # <-- KEY: pass strategy through
+            "strategy": strategy,  # <-- KEY: pass strategy through
             "days_on_market": dom,
         }
 
@@ -228,8 +244,40 @@ def top_deals(
             # If a single property blows up, skip it
             continue
 
-        finance = analysis.get("finance", {})
-        score = analysis.get("score", {})
+        finance = analysis.get("finance", {}) or {}
+        score = analysis.get("score", {}) or {}
+
+        # Pull underwriting metrics; allow fallback from 'coc' to 'cash_on_cash_return'
+        dscr = float(finance.get("dscr") or 0.0)
+        coc_value = finance.get("cash_on_cash_return")
+        if coc_value is None:
+            coc_value = finance.get("coc") or 0.0
+        coc = float(coc_value)
+        breakeven = float(finance.get("breakeven_occupancy_pct") or 0.0)
+        label = str(score.get("label") or "maybe")
+
+        # -----------------------------
+        # Apply investor-style filters
+        # -----------------------------
+        if min_label:
+            ml = min_label.lower()
+            lbl = label.lower()
+            if ml == "maybe":
+                # Drop only PASS deals
+                if lbl == "pass":
+                    continue
+            elif ml == "buy":
+                if lbl != "buy":
+                    continue
+
+        if min_dscr is not None and dscr < min_dscr:
+            continue
+
+        if min_coc is not None and coc < min_coc:
+            continue
+
+        if max_breakeven is not None and breakeven > max_breakeven:
+            continue
 
         items.append(
             TopDealItem(
@@ -242,13 +290,11 @@ def top_deals(
                 lat=rec.get("lat"),
                 lon=rec.get("lon"),
                 list_price=float(rec["list_price"]),
-                dscr=float(finance.get("dscr", 0.0)),
-                cash_on_cash_return=float(finance.get("cash_on_cash_return", 0.0)),
-                breakeven_occupancy_pct=float(
-                    finance.get("breakeven_occupancy_pct", 0.0)
-                ),
+                dscr=dscr,
+                cash_on_cash_return=coc,
+                breakeven_occupancy_pct=breakeven,
                 rank_score=float(score.get("rank_score", 0.0)),
-                label=str(score.get("label", "maybe")),
+                label=label,  # Pydantic will validate into the enum/union
                 reason=str(score.get("reason", "")),
                 dom=dom or None,
             )
