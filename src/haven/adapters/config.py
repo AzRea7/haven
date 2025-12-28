@@ -1,4 +1,4 @@
-# config.py
+# src/haven/adapters/config.py
 import os
 from typing import Any
 
@@ -6,28 +6,12 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-def get_env_str(key: str, default: str | None = None) -> str | None:
-    return os.getenv(key, default)
-
-
-def get_env_int(key: str, default: int | None = None) -> int | None:
-    v = os.getenv(key)
-    return int(v) if v is not None else default
-
-
-def get_env_bool(key: str, default: bool = False) -> bool:
-    v = os.getenv(key)
-    if v is None:
-        return default
-    return v.strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
 class AppConfig(BaseSettings):
     # App & logging
     ENV: str = Field(default="dev")
     LOG_LEVEL: str = Field(default="INFO")
 
-    # (future) persistence
+    # persistence
     DB_URI: str = Field(default="sqlite:///haven.db")
 
     # Underwriting default assumptions
@@ -39,9 +23,22 @@ class AppConfig(BaseSettings):
     DEFAULT_CLOSING_COST_PCT: float = Field(default=0.03)
     MIN_DSCR_GOOD: float = Field(default=1.20)
 
-    # pydantic v2 settings config (env support, case-insensitive, etc.)
+    # -----------------------------
+    # RentCast integration
+    # -----------------------------
+    RENTCAST_API_KEY: str | None = Field(default=None)
+    RENTCAST_BASE_URL: str = Field(default="https://api.rentcast.io/v1")
+
+    # If true, RentCast becomes the runtime rent estimator for analysis
+    RENTCAST_USE_FOR_RENT_ESTIMATES: bool = Field(default=False)
+
+    # -----------------------------
+    # Leads defaults
+    # -----------------------------
+    LEADS_DEFAULT_LIMIT: int = Field(default=200)
+
     model_config = SettingsConfigDict(
-        env_prefix="HAVEN_",           # e.g., HAVEN_VACANCY_RATE=0.06
+        env_prefix="HAVEN_",
         case_sensitive=False,
         extra="ignore",
     )
@@ -56,7 +53,6 @@ class AppConfig(BaseSettings):
     )
     @classmethod
     def _to_non_negative_fraction(cls, v: Any) -> Any:
-        # accept strings like "8%" or "0.08" or numbers; normalize to fraction
         if v is None:
             return v
         if isinstance(v, str):

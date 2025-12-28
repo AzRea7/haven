@@ -135,7 +135,7 @@ export function TopDealsTable({
     return (
       <>
         <div className="panel-header">
-          <h2>Top Deals</h2>
+          <h2>Top Leads</h2>
           <div className="muted">
             Running analysis and ranking by cashflow and DSCR…
           </div>

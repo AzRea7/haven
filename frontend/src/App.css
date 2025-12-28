@@ -50,3 +50,23 @@
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
   transform: translateY(-2px);
 }
+
+/* Make the left panel list scrollable instead of stretching the page */
+.deal-list {
+  max-height: 72vh;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+/* Optional: smoother scroll and nicer thumb */
+.deal-list::-webkit-scrollbar {
+  width: 10px;
+}
+.deal-list::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.18);
+  border-radius: 10px;
+}
+.deal-list::-webkit-scrollbar-track {
+  background: rgba(0,0,0,0.06);
+  border-radius: 10px;
+}
