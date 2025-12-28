@@ -6,6 +6,79 @@ import { AuctionLinksPanel } from "./components/AuctionLinksPanel";
 
 type Strategy = "rental" | "flip";
 
+// Lead shape from backend
+type LeadItem = {
+  lead_id: number;
+  address: string;
+  city: string;
+  state: string;
+  zipcode: string;
+  lat?: number | null;
+  lon?: number | null;
+  source: string;
+  external_id?: string | null;
+
+  lead_score: number;
+  stage:
+    | "new"
+    | "contacted"
+    | "appointment"
+    | "contract"
+    | "closed_won"
+    | "closed_lost";
+
+  created_at: string;
+  updated_at: string;
+  last_contacted_at?: string | null;
+  touches: number;
+  owner?: string | null;
+
+  list_price?: number | null;
+  dscr?: number | null;
+  cash_on_cash_return?: number | null;
+  rank_score?: number | null;
+  label?: "buy" | "maybe" | "pass" | null;
+  reason?: string | null;
+};
+
+function apiBase(): string {
+  // If you use vite proxy, VITE_API_BASE_URL can be empty.
+  // If proxy breaks, set VITE_API_BASE_URL=http://127.0.0.1:8000
+  return (import.meta as any).env?.VITE_API_BASE_URL?.trim?.() || "";
+}
+
+function leadToTopDeal(lead: LeadItem): TopDealItem {
+  // Temporary mapping so the existing TopDealsTable/Map works today.
+  return {
+    id: String(lead.lead_id),
+    external_id: lead.external_id || undefined,
+
+    address: lead.address,
+    city: lead.city,
+    state: lead.state,
+    zipcode: lead.zipcode,
+
+    list_price: Number(lead.list_price ?? 0),
+
+    dscr: Number(lead.dscr ?? 0),
+    cash_on_cash_return: Number(lead.cash_on_cash_return ?? 0),
+    breakeven_occupancy_pct: 0, // not in leads yet
+    rank_score: Number(lead.rank_score ?? lead.lead_score ?? 0),
+
+    label: (lead.label ?? "maybe") as any,
+    reason:
+      lead.reason ??
+      `Stage: ${lead.stage} · Touches: ${lead.touches} · LeadScore: ${(
+        lead.lead_score ?? 0
+      ).toFixed(2)}`,
+    source: lead.source,
+
+    lat: lead.lat ?? undefined,
+    lon: lead.lon ?? undefined,
+    dom: null,
+  };
+}
+
 function App() {
   const [zip, setZip] = useState("48009");
   const [activeZip, setActiveZip] = useState("48009");
@@ -15,7 +88,6 @@ function App() {
 
   const [strategy, setStrategy] = useState<Strategy>("rental");
 
-  // New investor-style filters
   const [minDscr, setMinDscr] = useState<string>("");
   const [minCoc, setMinCoc] = useState<string>("");
   const [minLabel, setMinLabel] = useState<"all" | "maybe" | "buy">("all");
@@ -25,68 +97,89 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
-  const loadDeals = (
-    targetZip: string,
-    targetMaxPrice: number,
-    targetStrategy: Strategy = strategy
-  ) => {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  async function loadLeads(targetZip: string, limit = 200) {
     const cleanedZip = targetZip.trim();
     if (!cleanedZip) return;
-
-    const maxPrice = Number(targetMaxPrice) || 0;
-    if (maxPrice <= 0) return;
 
     setLoading(true);
     setError(null);
 
     const params = new URLSearchParams();
     params.set("zip", cleanedZip);
-    params.set("max_price", String(maxPrice));
-    params.set("strategy", targetStrategy);
+    params.set("limit", String(limit));
 
-    // Wire up investor-style filters
-    if (minDscr.trim()) {
-      params.set("min_dscr", minDscr.trim());
-    }
-    if (minCoc.trim()) {
-      params.set("min_coc", minCoc.trim());
-    }
-    if (minLabel !== "all") {
-      params.set("min_label", minLabel);
-    }
+    // Optional filters (backend can ignore if not implemented yet)
+    if (minDscr.trim()) params.set("min_dscr", minDscr.trim());
+    if (minCoc.trim()) params.set("min_coc", minCoc.trim());
+    if (minLabel !== "all") params.set("min_label", minLabel);
 
-    const url = `/top-deals?${params.toString()}`;
+    const url = `${apiBase()}/top-leads?${params.toString()}`;
 
-    fetch(url)
-      .then((r) => {
-        if (!r.ok) {
-          throw new Error(`API ${r.status}`);
-        }
-        return r.json();
-      })
-      .then((data: TopDealItem[]) => {
-        setDeals(data);
-        setLastUpdated(new Date().toLocaleString());
-      })
-      .catch((err: unknown) => {
-        console.error(err);
-        setError("Unable to load deals. Please try again.");
-        setDeals([]);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  };
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`API ${r.status}`);
+      const data: LeadItem[] = await r.json();
+
+      const mapped = data.map(leadToTopDeal);
+      setDeals(mapped);
+      setSelectedId(null);
+      setLastUpdated(new Date().toLocaleString());
+    } catch (e) {
+      console.error(e);
+      setError("Unable to load leads. Please try again.");
+      setDeals([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function generateLeads(
+    targetZip: string,
+    targetMaxPrice: number,
+    limit = 300
+  ) {
+    const cleanedZip = targetZip.trim();
+    if (!cleanedZip) return;
+
+    setLoading(true);
+    setError(null);
+
+    const params = new URLSearchParams();
+    params.set("zip", cleanedZip);
+    params.set("max_price", String(targetMaxPrice));
+    params.set("limit", String(limit));
+    params.set("strategy", strategy);
+
+    const url = `${apiBase()}/leads/from-properties?${params.toString()}`;
+
+    try {
+      const r = await fetch(url, { method: "POST" });
+      if (!r.ok) throw new Error(`API ${r.status}`);
+
+      // this returns {"zip": "...", "created": n, "updated": n}
+      await r.json();
+
+      // now refresh list
+      await loadLeads(cleanedZip, 200);
+    } catch (e) {
+      console.error(e);
+      setError("Lead generation failed. Check backend logs.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   // Initial load
   useEffect(() => {
-    loadDeals(activeZip, activeMaxPrice, strategy);
+    loadLeads(activeZip, 200);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reload when strategy changes
+  // Reload on strategy change (doesn't matter much today, but keeps behavior consistent)
   useEffect(() => {
-    loadDeals(activeZip, activeMaxPrice, strategy);
+    loadLeads(activeZip, 200);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strategy]);
 
@@ -103,12 +196,13 @@ function App() {
 
     setActiveZip(cleanedZip);
     setActiveMaxPrice(finalMaxPrice);
-    loadDeals(cleanedZip, finalMaxPrice, strategy);
+
+    // load existing leads; generation is a separate action
+    loadLeads(cleanedZip, 200);
   };
 
   return (
     <div className="app-shell">
-      {/* Top Navigation / Branding */}
       <header className="app-header">
         <div className="app-header-left">
           <div className="app-logo">Haven</div>
@@ -119,7 +213,6 @@ function App() {
         </div>
       </header>
 
-      {/* Search Controls */}
       <section className="search-bar-section">
         <form className="search-bar" onSubmit={onSubmit}>
           <div className="search-field">
@@ -148,14 +241,21 @@ function App() {
             />
           </div>
 
-          <div className="search-actions">
+          <div className="search-actions" style={{ display: "flex", gap: 10 }}>
             <button type="submit" className="primary-button">
-              Run Analysis
+              Refresh Leads
+            </button>
+
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => generateLeads(activeZip, activeMaxPrice, 300)}
+            >
+              Load Leads
             </button>
           </div>
         </form>
 
-        {/* Strategy Toggle */}
         <div className="search-strategy-row">
           <span className="search-label">Strategy</span>
           <div className="strategy-toggle">
@@ -184,7 +284,6 @@ function App() {
           </div>
         </div>
 
-        {/* Investor-style filters */}
         <div className="search-bar secondary-filters">
           <div className="search-field">
             <label htmlFor="min-dscr-input" className="search-label">
@@ -241,12 +340,7 @@ function App() {
             <span className="pill">
               {activeZip} · ≤ ${activeMaxPrice.toLocaleString()}
             </span>{" "}
-            ·{" "}
-            <span className="pill">
-              {strategy === "rental"
-                ? "Rental / Cashflow"
-                : "Flip / ARV Spread"}
-            </span>
+            · <span className="pill">Leads (temporary Top Deals UI)</span>
           </div>
           {lastUpdated && (
             <div className="search-meta-secondary">
@@ -256,17 +350,26 @@ function App() {
         </div>
       </section>
 
-      {/* Main Content: List + Map + Auctions */}
       <main className="app-main">
         <section className="app-main-left">
           <div className="panel">
-            <TopDealsTable deals={deals} isLoading={loading} error={error} />
+            <TopDealsTable
+              deals={deals}
+              isLoading={loading}
+              error={error}
+              selectedDealId={selectedId}
+              onSelectDeal={setSelectedId}
+            />
           </div>
         </section>
 
         <section className="app-main-right">
           <div className="panel map-panel">
-            <TopDealsMap deals={deals} />
+            <TopDealsMap
+              deals={deals}
+              selectedDealId={selectedId}
+              onSelectDeal={setSelectedId}
+            />
           </div>
 
           <AuctionLinksPanel />
